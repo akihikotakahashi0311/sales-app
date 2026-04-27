@@ -1214,7 +1214,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
         </div>
         <!-- 現在のユーザー -->
-        <div class="current-user-badge" onclick="openUserSelector()" title="ユーザーを切り替え">
+        <div class="current-user-badge" id="current-user-badge" title="ユーザーを切り替え">
           <div class="current-user-avatar" id="current-user-avatar">?</div>
           <span id="current-user-name">未選択</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -2482,6 +2482,8 @@ async function loadFromOneDrive() {
     // 全画面を再描画
     renderDashboard();
     renderOpportunities();
+    // ユーザー選択の表示/非表示を更新
+    _updateUserSelectorVisibility();
     toast('✅ OneDriveからデータを読み込みました', 'success');
     // データ読込後にM365メールでユーザーを自動選択
     initUserSession();
@@ -2521,6 +2523,54 @@ async function saveToOneDrive() {
   }
 }
 
+// M365ログインユーザーが管理者かどうかを判定してユーザー選択バッジを制御
+function _updateUserSelectorVisibility() {
+  const badge = document.getElementById('current-user-badge') || document.querySelector('.current-user-badge');
+  if(!badge) return;
+
+  // 未ログイン時は非表示
+  if(!_odSyncEnabled || !_currentAccount) {
+    badge.style.display = 'none';
+    return;
+  }
+
+  // ログイン中のM365メールアドレスを取得
+  const loginEmail = (_currentAccount.username || _currentAccount.email || '').toLowerCase();
+
+  // dbのユーザーマスタから管理者ロールを持つユーザーを検索
+  const users = (db && db.users) ? db.users : [];
+  const matchedUser = users.find(u =>
+    u.email && u.email.toLowerCase() === loginEmail
+  );
+
+  const isAdmin = matchedUser && (
+    matchedUser.role === '管理者' ||
+    matchedUser.role === 'システム管理者' ||
+    matchedUser.role === 'マネージャー'
+  );
+
+  // バッジは常に表示（ユーザー名を見せる）
+  badge.style.display = '';
+
+  if(isAdmin) {
+    // 管理者: クリックでユーザー切り替え可能
+    badge.style.cursor = 'pointer';
+    badge.style.opacity = '1';
+    badge.onclick = openUserSelector;
+    // 矢印アイコンを表示
+    const arrow = badge.querySelector('svg');
+    if(arrow) arrow.style.display = '';
+  } else {
+    // 非管理者: クリック不可、切り替え禁止
+    badge.style.cursor = 'default';
+    badge.style.opacity = '0.8';
+    badge.onclick = null;
+    // 矢印アイコンを非表示
+    const arrow = badge.querySelector('svg');
+    if(arrow) arrow.style.display = 'none';
+  }
+}
+
 // OneDriveUIの状態更新
 function updateOneDriveUI() {
   const btn  = document.getElementById('btn-onedrive');
@@ -2538,10 +2588,14 @@ function updateOneDriveUI() {
     btn.textContent = '☁️ 同期中';
     btn.className = 'btn btn-sm btn-onedrive connected';
     if(badge) badge.textContent = _currentAccount.name;
+    // M365ログインユーザーが管理者かどうかを確認してユーザー選択を制御
+    _updateUserSelectorVisibility();
   } else {
     btn.textContent = '☁️ OneDrive接続';
     btn.className = 'btn btn-sm btn-onedrive';
     if(badge) badge.textContent = '';
+    // 未ログイン時はユーザー選択を非表示
+    _updateUserSelectorVisibility();
   }
 }
 
@@ -6196,7 +6250,17 @@ function renderMonthly() {
     else statusBadge = '<span class="badge badge-gray">未着手</span>';
     const isPoc = o.recog === '進行基準';
     const dis = locked ? 'disabled' : '';
-    return `<tr>
+    // 契約終了日との残日数でハイライト色を決定
+    const _today = new Date(); _today.setHours(0,0,0,0);
+    const _endDate = o.end ? new Date(o.end) : null;
+    const _daysToEnd = _endDate ? Math.ceil((_endDate - _today) / 86400000) : null;
+    let _rowBg = '';
+    if(_daysToEnd !== null && _daysToEnd >= 0) {
+      if(_daysToEnd <= 3)  _rowBg = 'background:#ffd0d0;'; // 薄い赤（3日以内）
+      else if(_daysToEnd <= 30) _rowBg = 'background:#ffd6e8;'; // 薄いピンク（30日以内）
+      else if(_daysToEnd <= 60) _rowBg = 'background:#ffe8cc;'; // 薄いオレンジ（60日以内）
+    }
+    return `<tr style="${_rowBg}">
       <td style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">${o.id}</td>
       <td style="font-size:12px;"><a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a></td>
       <td>${recogBadge(o.recog)}</td>
@@ -6689,11 +6753,20 @@ function renderAlerts() {
   const dismissed = db.alerts.filter(a=>a.dismissed);
 
   // フィルター適用
+  // 当日の日付
+  const _alertToday = new Date(); _alertToday.setHours(0,0,0,0);
+  const _alert60Days = new Date(_alertToday); _alert60Days.setDate(_alert60Days.getDate() + 60);
+
   let filtered = db.alerts.filter(a => {
     if(statusFilter==='active' && a.dismissed) return false;
     if(statusFilter==='dismissed' && !a.dismissed) return false;
     if(typeFilter && a.type!==typeFilter) return false;
     if(q && !a.title.toLowerCase().includes(q) && !a.detail.toLowerCase().includes(q)) return false;
+    // 期日フィルター: 過去 + 当日〜60日以内のアラートを表示（60日超の将来のみ除外）
+    if(a.date) {
+      const aDate = new Date(a.date); aDate.setHours(0,0,0,0);
+      if(aDate > _alert60Days) return false; // 60日超の将来は除外
+    }
     // スコープフィルター: oppId が紐づくアラートは担当案件のみ表示
     if(a.oppId && viewScope === 'own' && currentUser) {
       const opp = db.opportunities.find(o => o.id === a.oppId);
@@ -6725,8 +6798,12 @@ function renderAlerts() {
     <div class="metric-card gray"><div class="metric-label">対応済</div><div class="metric-value">${dismissed.length}件</div></div>
   `;
 
-  document.getElementById('alerts-list').innerHTML = filtered.length ? filtered.map(a=>`
-    <div class="alert-row${a.dismissed?' dismissed':''}" id="alert-${a.id}" data-alert-id="${a.id}" style="${a.dismissed?'opacity:0.5;':''}">
+  document.getElementById('alerts-list').innerHTML = filtered.length ? filtered.map(a=>{
+    // 過去のアラートは赤背景
+    const _isPast = a.date && new Date(a.date).setHours(0,0,0,0) < _alertToday.getTime();
+    const _rowStyle = a.dismissed ? 'opacity:0.5;' : (_isPast ? 'background:#ffd0d0;border-left:4px solid #e53935;' : '');
+    return `
+    <div class="alert-row${a.dismissed?' dismissed':''}" id="alert-${a.id}" data-alert-id="${a.id}" style="${_rowStyle}">
       <div class="alert-icon ${a.type}">${iconSVG[a.type]||''}</div>
       <div class="alert-content">
         <div class="alert-title">${a.title}${a.dismissed?' <span style="font-size:10px;color:var(--text-muted);">[対応済]</span>':''}</div>
@@ -6737,7 +6814,8 @@ function renderAlerts() {
         ${a.oppId ? `<button class="btn btn-sm" style="font-size:11px;" onclick="showOppDetail('${a.oppId}')">案件詳細</button>` : ''}
         ${!a.dismissed ? `<button class="btn btn-sm" onclick="dismissAlert('${a.id}')">対応済</button>` : `<span style="font-size:11px;color:var(--text-muted);">対応済</span>`}
       </div>
-    </div>`).join('') : '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>該当するアラートがありません</p></div>';
+    </div>`;
+  }).join('') : '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>該当するアラートがありません</p></div>';
 }
 
 
