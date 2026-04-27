@@ -3117,6 +3117,22 @@ function monthLabel(key) {
   return `${y}年${parseInt(m)}月`;
 }
 
+// 翌月末営業日を計算（土日は前の金曜日に戻す）
+function nextMonthEndBizDay(baseDate) {
+  // baseDate: 'YYYY-MM-DD' または Date
+  const d = baseDate ? new Date(baseDate) : new Date();
+  // 翌月を計算（月末: 翌々月の1日の前日）
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-indexed
+  // 翌月末 = 翌々月の1日の0時 - 1日
+  const lastDay = new Date(y, m + 2, 0); // 翌月の末日
+  // 土日なら前の金曜日
+  const dow = lastDay.getDay();
+  if(dow === 0) lastDay.setDate(lastDay.getDate() - 2); // 日曜→金曜
+  else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1); // 土曜→金曜
+  return lastDay.toISOString().split('T')[0];
+}
+
 function prevMonthKey(key) {
   const [y, m] = key.split('-').map(Number);
   return m === 1 ? `${y-1}-12` : `${y}-${String(m-1).padStart(2,'0')}`;
@@ -7752,7 +7768,7 @@ function renderPayment() {
         <td style="padding:5px 8px;text-align:center;">${statusBadge(r.status)}</td>
         <td style="padding:5px 8px;text-align:center;font-size:11px;">${r.billingDate||'—'}</td>
         <td style="padding:5px 8px;text-align:center;">
-          <input type="date" value="${r.paymentDate}" style="font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:2px 4px;width:110px;"
+          <input type="date" value="${r.paymentDate || nextMonthEndBizDay(r.billingDate || r.ym + '-01')}" style="font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:2px 4px;width:110px;"
             onchange="updatePaymentDate('${r.o.id}','${r.ym}',this.value)">
         </td>
         <td style="padding:5px 8px;text-align:center;">
@@ -7800,7 +7816,10 @@ function markAsPaid(oppId, ym) {
   if(!db.monthly[ym]) db.monthly[ym] = {};
   if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
   db.monthly[ym][oppId].cash = db.monthly[ym][oppId].billing || 0;
-  db.monthly[ym][oppId].paymentDate = db.monthly[ym][oppId].paymentDate || new Date().toISOString().split('T')[0];
+  // 入金日デフォルト: 請求日の翌月末営業日（未設定なら今日）
+  const _billingDate = db.monthly[ym][oppId].billingDate || '';
+  db.monthly[ym][oppId].paymentDate = db.monthly[ym][oppId].paymentDate ||
+    nextMonthEndBizDay(_billingDate || ym + '-01');
   save();
   toast('入金済にしました', 'success');
   renderPayment();
