@@ -1946,12 +1946,12 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
 
 <!-- Opportunity Modal -->
 <div class="modal-overlay" id="modal-opp">
-  <div class="modal">
+  <div class="modal" style="max-width:600px;max-height:92vh;display:flex;flex-direction:column;">
     <div class="modal-header">
       <div class="modal-title" id="opp-modal-title">新規案件登録</div>
       <button class="modal-close" onclick="closeModal('opp')">×</button>
     </div>
-    <div class="modal-body">
+    <div class="modal-body" style="flex:1;overflow-y:auto;">
       <input type="hidden" id="opp-edit-id">
       <div class="form-row">
         <div class="form-group">
