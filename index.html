@@ -7696,62 +7696,148 @@ let _contractDateOppId = null;
 
 function openContractDatePopup(oppId) {
   _contractDateOppId = oppId;
-  const opp = db.opportunities.find(o => o.id === oppId);
   const today = new Date().toISOString().split('T')[0];
 
-  // モーダル要素が存在しない場合は動的に生成
-  let modalEl = document.getElementById('modal-contract-date-popup');
-  if(!modalEl) {
-    modalEl = document.createElement('div');
-    modalEl.className = 'modal-overlay';
-    modalEl.id = 'modal-contract-date-popup';
-    modalEl.style.zIndex = '200';
-    modalEl.innerHTML = `
-      <div class="modal" style="max-width:420px;">
-        <div class="modal-header">
-          <div class="modal-title">📋 契約日の入力</div>
-          <button class="modal-close" onclick="closeModal('contract-date-popup')">×</button>
-        </div>
-        <div class="modal-body">
-          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">契約書をアップロードしました。実際の契約日を入力してください。</p>
-          <div class="form-group">
-            <label class="form-label required">契約日（実際）</label>
-            <input class="form-control" id="popup-contract-date" type="date" style="height:36px;font-size:13px;">
-            <div id="popup-contract-error" style="color:var(--red);font-size:12px;margin-top:4px;"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">契約終了日（実際）<span style="font-size:11px;color:var(--text-muted);margin-left:6px;">任意</span></label>
-            <input class="form-control" id="popup-contract-end" type="date" style="height:36px;font-size:13px;">
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" onclick="closeModal('contract-date-popup')">スキップ</button>
-          <button class="btn btn-primary" onclick="saveContractDatePopup()">保存</button>
-        </div>
-      </div>`;
-    modalEl.addEventListener('click', e => { if(e.target === modalEl) modalEl.classList.remove('open'); });
-    document.body.appendChild(modalEl);
-  }
+  // モーダルを開いてデータを復元
+  const modalEl = document.getElementById('modal-contract-date-popup');
+  if(!modalEl) { console.error('modal-contract-date-popup not found'); return; }
 
+  // 契約日のデフォルトを今日に設定
   const dateEl = document.getElementById('popup-contract-date');
-  const endEl  = document.getElementById('popup-contract-end');
-  const errEl  = document.getElementById('popup-contract-error');
-  if(dateEl) dateEl.value = opp?.contractDate || today;
-  if(endEl)  endEl.value  = opp?.contractEnd  || '';
-  if(errEl)  errEl.textContent = '';
+  if(dateEl && !dateEl.value) dateEl.value = today;
+
+  // opp の既存データを復元
+  initContractDatePopup(oppId);
+
   modalEl.classList.add('open');
 }
 
-function saveContractDatePopup() {
-  const contractDate = document.getElementById('popup-contract-date').value;
-  const contractEnd  = document.getElementById('popup-contract-end').value;
-  const errEl        = document.getElementById('popup-contract-error');
+// 契約時必要事項ポップアップ: 請求タイプ変更
+function onPopupBillingTypeChange() {
+  const type      = document.getElementById('popup-billing-type')?.value || '';
+  const dateGroup = document.getElementById('popup-billing-date-group');
+  const dateLabel = document.getElementById('popup-billing-date-label');
+  const dateHint  = document.getElementById('popup-billing-date-hint');
+  const nextGroup = document.getElementById('popup-next-billing-date-group');
+  // 月次請求の場合: 契約終了日を必須に
+  const endBadge  = document.getElementById('popup-end-required-badge');
+  const optBadge  = document.getElementById('popup-end-optional-badge');
 
+  if(type === 'monthly') {
+    if(dateGroup) dateGroup.style.display = 'none';
+    if(nextGroup) nextGroup.style.display = 'none';
+    if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
+    // 月次売上計上のため契約終了日を必須表示
+    if(endBadge) endBadge.style.display = '';
+    if(optBadge) optBadge.style.display = 'none';
+  } else if(type === 'milestone') {
+    if(dateGroup) dateGroup.style.display = '';
+    if(dateLabel) dateLabel.textContent = '初回請求予定日';
+    if(nextGroup) nextGroup.style.display = '';
+    if(dateHint)  dateHint.textContent = '請求書発行後、次回請求予定日を更新してください';
+    if(endBadge) endBadge.style.display = 'none';
+    if(optBadge) optBadge.style.display = '';
+  } else if(type === 'lump') {
+    if(dateGroup) dateGroup.style.display = '';
+    if(dateLabel) dateLabel.textContent = '請求予定日';
+    if(nextGroup) nextGroup.style.display = 'none';
+    if(dateHint)  dateHint.textContent = '';
+    if(endBadge) endBadge.style.display = 'none';
+    if(optBadge) optBadge.style.display = '';
+  } else {
+    if(dateGroup) dateGroup.style.display = '';
+    if(dateLabel) dateLabel.textContent = '請求予定日';
+    if(nextGroup) nextGroup.style.display = 'none';
+    if(dateHint)  dateHint.textContent = '';
+    if(endBadge) endBadge.style.display = 'none';
+    if(optBadge) optBadge.style.display = '';
+  }
+  calcPopupPaymentDueDate();
+}
+
+// 契約時ポップアップ: 入金予定日自動計算
+function calcPopupPaymentDueDate() {
+  const type        = document.getElementById('popup-billing-type')?.value || '';
+  const siteVal     = parseInt(document.getElementById('popup-billing-site')?.value || '0') || 0;
+  const billingDate = document.getElementById('popup-billing-date')?.value || '';
+  const payDueEl    = document.getElementById('popup-payment-due');
+  if(!payDueEl) return;
+  let baseDate = '';
+  if(type === 'monthly') {
+    const now = new Date();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    baseDate = monthEnd.toISOString().split('T')[0];
+  } else if(billingDate) {
+    baseDate = billingDate;
+  }
+  if(!baseDate) { payDueEl.value = ''; return; }
+  if(siteVal > 0) {
+    const d = new Date(baseDate);
+    d.setDate(d.getDate() + siteVal);
+    payDueEl.value = d.toISOString().split('T')[0];
+  } else {
+    payDueEl.value = nextMonthEndBizDay(baseDate);
+  }
+}
+
+// 契約時ポップアップを開く際にopp既存データを復元
+function initContractDatePopup(oppId) {
+  const opp = db.opportunities.find(o => o.id === oppId);
+  // 契約日
+  const cdEl = document.getElementById('popup-contract-date');
+  const ceEl = document.getElementById('popup-contract-end');
+  if(cdEl) cdEl.value = opp?.contractDate || '';
+  if(ceEl) ceEl.value = opp?.contractEnd  || opp?.end || '';
+  // 売上回収時期
+  const btEl  = document.getElementById('popup-billing-type');
+  const bsEl  = document.getElementById('popup-billing-site');
+  const bdEl  = document.getElementById('popup-billing-date');
+  const nbEl  = document.getElementById('popup-next-billing-date');
+  const pdEl  = document.getElementById('popup-payment-due');
+  const bmEl  = document.getElementById('popup-billing-memo');
+  if(btEl)  btEl.value  = opp?.billingType     || '';
+  if(bsEl)  bsEl.value  = opp?.billingSite      || '';
+  if(bdEl)  bdEl.value  = opp?.billingDate      || '';
+  if(nbEl)  nbEl.value  = opp?.nextBillingDate  || '';
+  if(pdEl)  pdEl.value  = opp?.paymentDue       || '';
+  if(bmEl)  bmEl.value  = opp?.billingMemo      || '';
+  // エラークリア
+  ['popup-contract-error','popup-end-error','popup-billing-type-error'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = '';
+  });
+  // UIを更新
+  onPopupBillingTypeChange();
+}
+
+function saveContractDatePopup() {
+  const contractDate  = document.getElementById('popup-contract-date').value;
+  const contractEnd   = document.getElementById('popup-contract-end').value;
+  const billingType   = document.getElementById('popup-billing-type')?.value || '';
+  const billingSite   = parseInt(document.getElementById('popup-billing-site')?.value || '0') || 0;
+  const billingDate   = document.getElementById('popup-billing-date')?.value || '';
+  const nextBilDate   = document.getElementById('popup-next-billing-date')?.value || '';
+  const paymentDue    = document.getElementById('popup-payment-due')?.value || '';
+  const billingMemo   = document.getElementById('popup-billing-memo')?.value.trim() || '';
+  const errEl         = document.getElementById('popup-contract-error');
+  const endErrEl      = document.getElementById('popup-end-error');
+  const btErrEl       = document.getElementById('popup-billing-type-error');
+
+  // バリデーション
+  let hasError = false;
   if(!contractDate) {
     errEl.textContent = '契約日は必須です';
-    return;
-  }
-  errEl.textContent = '';
+    hasError = true;
+  } else { errEl.textContent = ''; }
+  if(billingType === 'monthly' && !contractEnd) {
+    endErrEl.textContent = '月次売上計上の場合、契約終了日は必須です';
+    hasError = true;
+  } else { endErrEl.textContent = ''; }
+  if(!billingType) {
+    btErrEl.textContent = '請求タイプは必須です';
+    hasError = true;
+  } else { btErrEl.textContent = ''; }
+  if(hasError) return;
 
   const oppId = _contractDateOppId;
   console.log('[Contract Save] oppId:', oppId, '_contractDateOppId:', _contractDateOppId);
@@ -7759,8 +7845,15 @@ function saveContractDatePopup() {
     // 既存案件に書き込む
     const idx = db.opportunities.findIndex(o => o.id === oppId);
     if(idx >= 0) {
-      db.opportunities[idx].contractDate = contractDate;
-      db.opportunities[idx].contractEnd  = contractEnd;
+      db.opportunities[idx].contractDate    = contractDate;
+      db.opportunities[idx].contractEnd     = contractEnd;
+      // 売上回収時期
+      db.opportunities[idx].billingType     = billingType;
+      db.opportunities[idx].billingSite     = billingSite;
+      db.opportunities[idx].billingDate     = billingDate;
+      db.opportunities[idx].nextBillingDate = nextBilDate;
+      db.opportunities[idx].paymentDue      = paymentDue;
+      db.opportunities[idx].billingMemo     = billingMemo;
       // 契約書アップロード → 受注に変更
       const wasWon = db.opportunities[idx].stage === '受注';
       db.opportunities[idx].stage = '受注';
@@ -7776,9 +7869,15 @@ function saveContractDatePopup() {
       if(!wasWon) setTimeout(() => showCrackerAnimation(), 600);
     }
   } else {
-    window._pendingContractDate = contractDate;
-    window._pendingContractEnd  = contractEnd;
-    toast('契約日を設定しました（案件保存時に反映されます）', 'success');
+    window._pendingContractDate    = contractDate;
+    window._pendingContractEnd     = contractEnd;
+    window._pendingBillingType     = billingType;
+    window._pendingBillingSite     = billingSite;
+    window._pendingBillingDate     = billingDate;
+    window._pendingNextBilDate     = nextBilDate;
+    window._pendingPaymentDue      = paymentDue;
+    window._pendingBillingMemo     = billingMemo;
+    toast('契約時必要事項を設定しました（案件保存時に反映されます）', 'success');
     closeModal('contract-date-popup');
   }
 }
@@ -8920,28 +9019,77 @@ function saveTask() {
 
 <!-- Contract Date Popup Modal -->
 <div class="modal-overlay" id="modal-contract-date-popup" style="z-index:200;">
-  <div class="modal" style="max-width:420px;">
+  <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto;">
     <div class="modal-header">
-      <div class="modal-title">📋 契約日の入力</div>
+      <div class="modal-title">📋 契約時必要事項</div>
       <button class="modal-close" onclick="closeModal('contract-date-popup')">×</button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">
-        契約書をアップロードしました。実際の契約日を入力してください。
+        受注登録に必要な情報を入力してください。
       </p>
-      <div class="form-group">
-        <label class="form-label required">契約日（実際）</label>
-        <input class="form-control" id="popup-contract-date" type="date" style="height:36px;font-size:13px;">
-        <div id="popup-contract-error" style="color:var(--red);font-size:12px;margin-top:4px;"></div>
+
+      <!-- 契約日 -->
+      <div style="padding:8px 12px;background:var(--bg-secondary);border-left:4px solid var(--accent);border-radius:4px;font-weight:600;font-size:13px;margin-bottom:12px;">📅 契約期間</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label required">契約日</label>
+          <input class="form-control" id="popup-contract-date" type="date" style="height:36px;font-size:13px;">
+          <div id="popup-contract-error" style="color:var(--red);font-size:12px;margin-top:4px;"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="popup-contract-end-label">契約終了日
+            <span id="popup-end-required-badge" style="display:none;" class="required-badge">必須</span>
+            <span id="popup-end-optional-badge" style="font-size:11px;color:var(--text-muted);margin-left:6px;">任意</span>
+          </label>
+          <input class="form-control" id="popup-contract-end" type="date" style="height:36px;font-size:13px;">
+          <div id="popup-end-error" style="color:var(--red);font-size:12px;margin-top:4px;"></div>
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">契約終了日（実際）<span style="font-size:11px;color:var(--text-muted);margin-left:6px;">任意</span></label>
-        <input class="form-control" id="popup-contract-end" type="date" style="height:36px;font-size:13px;">
+
+      <!-- 売上回収時期 -->
+      <div style="padding:8px 12px;background:var(--bg-secondary);border-left:4px solid var(--accent);border-radius:4px;font-weight:600;font-size:13px;margin:16px 0 12px;">💰 売上回収時期</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label required">請求タイプ</label>
+          <select class="form-control" id="popup-billing-type" onchange="onPopupBillingTypeChange()">
+            <option value="">選択してください</option>
+            <option value="monthly">月次請求（毎月末）</option>
+            <option value="lump">一括請求</option>
+            <option value="milestone">マイルストーン請求</option>
+          </select>
+          <div id="popup-billing-type-error" style="color:var(--red);font-size:12px;margin-top:4px;"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">入金サイト（日数）</label>
+          <input class="form-control" type="number" id="popup-billing-site" placeholder="例: 30" min="0" max="365" oninput="calcPopupPaymentDueDate()">
+        </div>
+      </div>
+      <div class="form-row" id="popup-billing-date-row">
+        <div class="form-group" id="popup-billing-date-group">
+          <label class="form-label" id="popup-billing-date-label">請求予定日</label>
+          <input class="form-control" type="date" id="popup-billing-date" oninput="calcPopupPaymentDueDate()">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="popup-billing-date-hint"></div>
+        </div>
+        <div class="form-group" id="popup-next-billing-date-group" style="display:none;">
+          <label class="form-label">次回請求予定日 <span style="font-size:10px;color:var(--text-muted);">（発行後更新）</span></label>
+          <input class="form-control" type="date" id="popup-next-billing-date">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">入金予定日 <span style="font-size:10px;color:var(--text-muted);">（自動計算）</span></label>
+          <input class="form-control" type="date" id="popup-payment-due" placeholder="入金サイトから自動計算">
+        </div>
+        <div class="form-group">
+          <label class="form-label">支払条件・備考</label>
+          <input class="form-control" id="popup-billing-memo" placeholder="例：月末締め翌月末払い">
+        </div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('contract-date-popup')">スキップ</button>
-      <button class="btn btn-primary" onclick="saveContractDatePopup()">保存</button>
+      <button class="btn btn-primary" onclick="saveContractDatePopup()">保存して受注登録</button>
     </div>
   </div>
 </div>
