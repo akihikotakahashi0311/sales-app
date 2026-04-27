@@ -1553,7 +1553,12 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <div class="card-header">
             <span class="card-title">入金管理</span>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <select class="form-control" id="payment-month-sel" style="width:130px;height:32px;font-size:12px;" onchange="renderPayment()"></select>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button class="btn btn-sm" onclick="changePaymentMonth(-1)" title="前月" style="font-size:18px;padding:2px 12px;">‹</button>
+                <span id="payment-month-label" style="font-size:16px;font-weight:700;min-width:130px;text-align:center;letter-spacing:0.02em;cursor:pointer;" onclick="document.getElementById('payment-month-picker-hidden').showPicker?.() || document.getElementById('payment-month-picker-hidden').click()"></span>
+                <button class="btn btn-sm" onclick="changePaymentMonth(1)"  title="翌月" style="font-size:18px;padding:2px 12px;">›</button>
+                <input type="month" id="payment-month-picker-hidden" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" onchange="changePaymentMonthPicker(this.value)">
+              </div>
               <select class="form-control" id="payment-status-filter" style="width:110px;height:32px;font-size:12px;" onchange="renderPayment()">
                 <option value="">全ステータス</option>
                 <option value="unpaid">未請求</option>
@@ -2937,6 +2942,7 @@ let db = (() => {
 })();
 let currentMonth = (()=>{ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); })();
 let reportMonth = currentMonth; // 分析レポートの参照月（currentMonth で初期化）
+let currentPaymentMonth = prevMonthKey(currentMonth); // 入金管理の基準月（デフォルト：先月）
 let charts = {};
 
 // ═══════════════════════════════════════════════════════════════
@@ -6014,6 +6020,18 @@ function changeMonth(delta) {
   renderMonthly();
 }
 
+
+// 入金管理の月ナビ
+function changePaymentMonth(delta) {
+  if(delta < 0) currentPaymentMonth = prevMonthKey(currentPaymentMonth);
+  else currentPaymentMonth = nextMonthKey(currentPaymentMonth);
+  renderPayment();
+}
+function changePaymentMonthPicker(val) {
+  if(!val) return;
+  currentPaymentMonth = val;
+  renderPayment();
+}
 function changeMonthPicker(val) {
   if(!val) return;
   currentMonth = val;
@@ -7578,17 +7596,15 @@ let paymentSortKey = 'month';
 let paymentSortDir = 1;  // 1=降順（新しい/大きい順）, -1=昇順
 
 function initPaymentMonthSel() {
-  const sel = document.getElementById('payment-month-sel');
-  if(!sel) return;
-  // 全月（過去・当月・未来）を降順で表示
-  const months = Object.keys(db.monthly).sort().reverse();
-  // 選択肢を毎回再構築（新しい月が追加された場合に対応）
-  const prevVal = sel.value;
-  sel.innerHTML = '<option value="">全月表示</option>' +
-    months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
-  // 選択値を復元（なければ当月をデフォルト）
-  if(prevVal && months.includes(prevVal)) sel.value = prevVal;
-  else if(months.includes(currentMonth)) sel.value = currentMonth;
+  // 月ラベルを更新
+  const lbl = document.getElementById('payment-month-label');
+  if(lbl) {
+    const [y, m] = currentPaymentMonth.split('-');
+    lbl.textContent = `${y}年${parseInt(m)}月`;
+  }
+  // ピッカーの値を同期
+  const picker = document.getElementById('payment-month-picker-hidden');
+  if(picker) picker.value = currentPaymentMonth;
 }
 
 function sortPayment(key) {
@@ -7604,13 +7620,11 @@ function sortPayment(key) {
 
 function renderPayment() {
   initPaymentMonthSel();
-  const selMonth    = document.getElementById('payment-month-sel')?.value || '';
   const statusFilter = document.getElementById('payment-status-filter')?.value || '';
   const q           = (document.getElementById('payment-search')?.value || '').toLowerCase();
 
-  // 対象月リスト（全月・未来月含む）
-  const months = selMonth ? [selMonth] :
-    Object.keys(db.monthly).sort().reverse();
+  // 対象月リスト: currentPaymentMonth の単月表示
+  const months = [currentPaymentMonth];
 
   // 行データを生成
   const rows = [];
