@@ -783,6 +783,9 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
   /* モーダル */
   .modal { margin: 12px; width: calc(100% - 24px); max-height: calc(100vh - 24px); }
   .modal-body { max-height: calc(100vh - 160px); overflow-y: auto; }
+.pdf-drop-zone { border:2px dashed var(--border-medium);border-radius:8px;padding:14px 8px;text-align:center;cursor:pointer;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);transition:border-color 0.2s;min-height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px; }
+.pdf-drop-zone:hover { border-color:var(--accent);color:var(--accent); }
+.pdf-drop-zone.has-file { border-color:var(--green);background:var(--green-light,#f0fdf4); }
 
   /* スケジュールテーブル */
   .schedule-table-wrap { max-height: 200px; }
@@ -1972,7 +1975,14 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-row">
         <div class="form-group">
           <label class="form-label required">フェーズ</label>
-          <select class="form-control" id="f-opp-stage" onchange="onStageChange(this.value)"></select>
+          <select class="form-control" id="f-opp-stage" onchange="onStageChange(this.value)">
+            <option>リード</option>
+            <option>提案中</option>
+            <option>見積提出</option>
+            <option>交渉中</option>
+            <option>受注</option>
+            <option>失注</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label required">確度（%）</label>
@@ -3224,7 +3234,9 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 });
 
 function populateOppModal(opp=null) {
-  // 顧客オートコンプリートは input 要素に変更
+  // 顧客オートコンプリートリストを更新
+  const custDl = document.getElementById('customer-list');
+  if(custDl) custDl.innerHTML = db.customers.map(c => `<option value="${c.name}">`).join('');
   const custSel = document.getElementById('f-opp-customer');
   custSel.value = ''; // 毎回クリア
   const ownerSel = document.getElementById('f-opp-owner');
