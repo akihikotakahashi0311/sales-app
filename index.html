@@ -3272,11 +3272,22 @@ function populateOppModal(opp=null) {
     document.getElementById('f-opp-next-action').value   = opp.nextAction?.action   || '';
     document.getElementById('f-opp-next-priority').value = opp.nextAction?.priority || 'normal';
   } else {
+    // 新規登録：全フィールドを完全リセット
+    document.getElementById('f-opp-name').value          = '';
+    document.getElementById('f-opp-customer').value      = '';
+    document.getElementById('f-opp-amount').value        = '';
+    document.getElementById('f-opp-prob').value          = '50';
+    document.getElementById('f-opp-stage').value         = '提案中';
+    document.getElementById('f-opp-recog').value         = '月額按分';
+    document.getElementById('f-opp-memo').value          = '';
     document.getElementById('f-opp-start').value         = '';
     document.getElementById('f-opp-end').value           = '';
     document.getElementById('f-opp-next-date').value     = '';
     document.getElementById('f-opp-next-action').value   = '';
     document.getElementById('f-opp-next-priority').value = 'normal';
+    // 月次スケジュールもリセット
+    scheduleData = {};
+    setTimeout(() => renderScheduleSection(), 0);
   }
   // 売上回収時期フィールドを復元
   const _bt = document.getElementById('f-opp-billing-type');
