@@ -7580,16 +7580,15 @@ let paymentSortDir = 1;  // 1=降順（新しい/大きい順）, -1=昇順
 function initPaymentMonthSel() {
   const sel = document.getElementById('payment-month-sel');
   if(!sel) return;
-  // 過去から当月まで（未来月を除外）、降順で表示
-  const months = Object.keys(db.monthly)
-    .filter(m => m <= currentMonth)
-    .sort().reverse();
-  // 既に選択肢が構築済みなら再構築しない（選択値を保持するため）
-  if(sel.options.length > 1) return;
+  // 全月（過去・当月・未来）を降順で表示
+  const months = Object.keys(db.monthly).sort().reverse();
+  // 選択肢を毎回再構築（新しい月が追加された場合に対応）
+  const prevVal = sel.value;
   sel.innerHTML = '<option value="">全月表示</option>' +
     months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
-  // 初回のみ現在月をデフォルト選択
-  if(months.includes(currentMonth)) sel.value = currentMonth;
+  // 選択値を復元（なければ当月をデフォルト）
+  if(prevVal && months.includes(prevVal)) sel.value = prevVal;
+  else if(months.includes(currentMonth)) sel.value = currentMonth;
 }
 
 function sortPayment(key) {
@@ -7609,9 +7608,9 @@ function renderPayment() {
   const statusFilter = document.getElementById('payment-status-filter')?.value || '';
   const q           = (document.getElementById('payment-search')?.value || '').toLowerCase();
 
-  // 対象月リスト
+  // 対象月リスト（全月・未来月含む）
   const months = selMonth ? [selMonth] :
-    Object.keys(db.monthly).filter(m => m <= currentMonth).sort().reverse().slice(0, 24);
+    Object.keys(db.monthly).sort().reverse();
 
   // 行データを生成
   const rows = [];
