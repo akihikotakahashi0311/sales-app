@@ -4658,7 +4658,7 @@ function onRecogChange() {
     const endVal   = document.getElementById('f-opp-end')?.value   || '';
     if(amount > 0 && startVal && endVal) {
       scheduleData = {};
-      autoFillSchedule();
+      try { autoFillSchedule(); } catch(e) { console.warn('autoFillSchedule:', e.message); }
     }
   }
 }
