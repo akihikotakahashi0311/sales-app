@@ -343,7 +343,8 @@ tfoot td {
   transition: border-color 0.12s;
 }
 .form-control:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(24,95,165,0.12); }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-row { display: flex; flex-wrap: wrap; gap: 14px; }
+.form-row > .form-group { flex: 1; min-width: 180px; }
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 .form-note { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 
@@ -777,8 +778,8 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
   .chart-wrap { min-height: 160px; }
 
   /* フォーム */
-  .form-row { flex-direction: column; gap: 10px; }
-  .form-row-3 { flex-direction: column; gap: 10px; }
+  .form-row { gap: 8px; }
+  .form-row > .form-group { min-width: 100%; }
 
   /* モーダル */
   .modal { margin: 12px; width: calc(100% - 24px); max-height: calc(100vh - 24px); }
