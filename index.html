@@ -8558,12 +8558,13 @@ function updateUserUI() {
 // ─ 全画面を現在ユーザー・スコープで再描画
 function refreshAllViews() {
   const page = document.querySelector('.page.active')?.id?.replace('page-','');
-  if(page === 'dashboard')     renderDashboard();
+  if(page === 'dashboard')          renderDashboard();
   else if(page === 'opportunities') renderOpportunities();
-  else if(page === 'monthly')  renderMonthly();
-  else if(page === 'reports')  renderReports();
-  else if(page === 'alerts')   renderAlerts();
-  else                          renderDashboard();
+  else if(page === 'monthly')       renderMonthly();
+  else if(page === 'payment')       renderPayment();
+  else if(page === 'reports')       renderReports();
+  else if(page === 'alerts')        renderAlerts();
+  else                              renderDashboard();
 }
 
 // ─ スコープフィルター: opportunity に適用するか判定
