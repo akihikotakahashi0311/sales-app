@@ -2170,6 +2170,8 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <button class="btn" onclick="document.getElementById('pdf-input-contract-detail').click()" style="background:#8b6914;color:#fff;border:none;">📋 契約書アップロード</button>
       <input type="file" id="pdf-input-contract-detail" accept=".pdf,application/pdf" style="display:none" onchange="handlePdfUpload(this,'contract')">
       <button class="btn" onclick="generateQuotePdf(currentDetailOppId)" style="background:var(--green,#1e7e34);color:#fff;border:none;">📄 見積書作成</button>
+      <select id="detail-invoice-ym-sel" class="form-control" style="display:none;height:34px;width:120px;font-size:12px;"></select>
+      <button class="btn" id="detail-invoice-btn" style="display:none;background:#1565c0;color:#fff;border:none;" onclick="generateInvoice(currentDetailOppId, document.getElementById('detail-invoice-ym-sel').value)">🧾 請求書作成</button>
       <button class="btn btn-primary" id="detail-edit-btn">編集</button>
     </div>
   </div>
@@ -5383,6 +5385,32 @@ function showOppDetail(id) {
 
   // PDFアップロードの currentPdfOppId を設定
   initPdfSection(id);
+
+  // ── 請求書作成ボタン：当月の請求額が入っている月があれば表示 ──
+  const _billingMonths = Object.entries(db.monthly || {}).filter(([ym, mdata]) => {
+    const m = mdata[id] || {};
+    return (m.billing || 0) > 0;
+  }).map(([ym]) => ym).sort().reverse();
+
+  const _invBtn = document.getElementById('detail-invoice-btn');
+  const _invSel = document.getElementById('detail-invoice-ym-sel');
+  if(_invBtn && _invSel) {
+    if(_billingMonths.length > 0) {
+      // 月選択セレクタを更新
+      _invSel.innerHTML = _billingMonths.map(ym => {
+        const [y, m] = ym.split('-');
+        return `<option value="${ym}">${y}年${parseInt(m)}月</option>`;
+      }).join('');
+      // 当月が含まれていれば当月を選択、なければ最新月
+      _invSel.value = _billingMonths.includes(currentMonth) ? currentMonth : _billingMonths[0];
+      _invBtn.style.display = '';
+      _invSel.style.display = _billingMonths.length > 1 ? '' : 'none';
+    } else {
+      _invBtn.style.display = 'none';
+      _invSel.style.display = 'none';
+    }
+  }
+
   openModal('opp-detail');
 }
 
