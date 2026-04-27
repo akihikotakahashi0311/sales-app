@@ -2023,28 +2023,25 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </div>
 
       <!-- 月次売上スケジュール（月額按分・進行基準のみ） -->
-      <div id="sched-section" style="display:none;margin-top:4px;">
+      <div id="monthly-schedule-section" style="display:none;margin-top:4px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-          <span style="font-size:12px;font-weight:600;color:var(--text-secondary);">月次売上スケジュール</span>
-          <select class="form-control" id="sched-range-sel" style="width:160px;height:28px;font-size:11px;" onchange="buildSchedRows()">
+          <span id="schedule-section-title" style="font-size:12px;font-weight:600;color:var(--text-secondary);">月次売上スケジュール</span>
+          <select class="form-control" id="sched-range-sel" style="width:160px;height:28px;font-size:11px;" onchange="renderScheduleSection()">
             <option value="contract">契約期間</option>
             <option value="future">将来24ヶ月</option>
             <option value="past24future">過去24+将来24ヶ月</option>
             <option value="custom">カスタム開始月</option>
           </select>
-          <input type="month" id="sched-custom-start" style="display:none;height:28px;font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:0 6px;" onchange="buildSchedRows()">
-          <button class="btn btn-sm" onclick="autoFillSched()" style="font-size:11px;">自動入力</button>
+          <input type="month" id="sched-custom-start" style="display:none;height:28px;font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:0 6px;" onchange="renderScheduleSection()">
+          <button class="btn btn-sm" onclick="autoFillSchedule()" style="font-size:11px;">自動入力</button>
+          <span id="sched-sum-pct" style="display:none;font-size:11px;color:var(--text-muted);"></span>
           <span id="sched-total-disp" style="font-size:11px;color:var(--text-muted);margin-left:4px;"></span>
         </div>
+        <div id="schedule-info-text" style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;"></div>
         <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
           <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead>
-              <tr style="background:var(--bg-secondary);position:sticky;top:0;">
-                <th style="padding:5px 8px;text-align:left;width:90px;">月</th>
-                <th style="padding:5px 8px;text-align:right;">売上（万円）</th>
-              </tr>
-            </thead>
-            <tbody id="sched-tbody"></tbody>
+            <thead id="schedule-thead" style="background:var(--bg-secondary);position:sticky;top:0;"></thead>
+            <tbody id="schedule-tbody"></tbody>
           </table>
         </div>
       </div>
