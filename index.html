@@ -2109,6 +2109,48 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
       </div>
 
+
+      <!-- 売上回収時期セクション -->
+      <div class="form-section-title" style="margin-top:18px;padding:8px 12px;background:var(--bg-secondary);border-left:4px solid var(--accent);border-radius:4px;font-weight:600;font-size:13px;color:var(--text-primary);">
+        💰 売上回収時期
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <div class="form-group">
+          <label class="form-label">請求タイプ</label>
+          <select class="form-control" id="f-opp-billing-type" onchange="onBillingTypeChange()">
+            <option value="">未設定</option>
+            <option value="monthly">月次請求（毎月末）</option>
+            <option value="lump">一括請求</option>
+            <option value="milestone">マイルストーン請求</option>
+          </select>
+        </div>
+        <div class="form-group" id="f-opp-billing-site-group">
+          <label class="form-label">入金サイト（日数）</label>
+          <input class="form-control" type="number" id="f-opp-billing-site" placeholder="例: 30" min="0" max="365" oninput="calcPaymentDueDate()">
+        </div>
+      </div>
+      <div class="form-row" id="f-opp-billing-date-row">
+        <div class="form-group" id="f-opp-billing-date-group">
+          <label class="form-label" id="f-opp-billing-date-label">請求予定日</label>
+          <input class="form-control" type="date" id="f-opp-billing-date" oninput="calcPaymentDueDate()">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="f-opp-billing-date-hint"></div>
+        </div>
+        <div class="form-group" id="f-opp-next-billing-date-group" style="display:none;">
+          <label class="form-label">次回請求予定日 <span style="font-size:10px;color:var(--text-muted);">（請求書発行後に更新）</span></label>
+          <input class="form-control" type="date" id="f-opp-next-billing-date">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">入金予定日 <span style="font-size:10px;color:var(--text-muted);">（自動計算）</span></label>
+          <input class="form-control" type="date" id="f-opp-payment-due" placeholder="入金サイトから自動計算">
+        </div>
+        <div class="form-group">
+          <label class="form-label">支払条件・備考</label>
+          <input class="form-control" id="f-opp-billing-memo" placeholder="例：月末締め翌月末払い">
+        </div>
+      </div>
+
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('opp');window._convertingLeadId=null;">キャンセル</button>
       <button class="btn btn-primary" onclick="saveOpportunity()">登録・保存</button>
@@ -3236,6 +3278,21 @@ function populateOppModal(opp=null) {
     document.getElementById('f-opp-next-action').value   = '';
     document.getElementById('f-opp-next-priority').value = 'normal';
   }
+  // 売上回収時期フィールドを復元
+  const _bt = document.getElementById('f-opp-billing-type');
+  const _bs = document.getElementById('f-opp-billing-site');
+  const _bd = document.getElementById('f-opp-billing-date');
+  const _nb = document.getElementById('f-opp-next-billing-date');
+  const _pd = document.getElementById('f-opp-payment-due');
+  const _bm = document.getElementById('f-opp-billing-memo');
+  if(_bt) _bt.value = opp?.billingType     || '';
+  if(_bs) _bs.value = opp?.billingSite      || '';
+  if(_bd) _bd.value = opp?.billingDate      || '';
+  if(_nb) _nb.value = opp?.nextBillingDate  || '';
+  if(_pd) _pd.value = opp?.paymentDue       || '';
+  if(_bm) _bm.value = opp?.billingMemo      || '';
+  // 請求タイプに応じてUIを更新
+  onBillingTypeChange();
 }
 
 function populateCustModal() {
@@ -4960,6 +5017,74 @@ function writeScheduleToMonthly(oppId, startVal, recog) {
   });
 }
 
+// 請求タイプ変更ハンドラー
+function onBillingTypeChange() {
+  const type = document.getElementById('f-opp-billing-type')?.value || '';
+  const dateRow    = document.getElementById('f-opp-billing-date-row');
+  const dateGroup  = document.getElementById('f-opp-billing-date-group');
+  const dateLabel  = document.getElementById('f-opp-billing-date-label');
+  const dateHint   = document.getElementById('f-opp-billing-date-hint');
+  const dateInput  = document.getElementById('f-opp-billing-date');
+  const nextGroup  = document.getElementById('f-opp-next-billing-date-group');
+
+  if(type === 'monthly') {
+    // 月次: 請求日は毎月末（自動）
+    if(dateGroup) dateGroup.style.display = 'none';
+    if(nextGroup) nextGroup.style.display = 'none';
+    if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
+  } else if(type === 'milestone') {
+    // マイルストーン: 初回請求日 + 次回請求日
+    if(dateGroup) dateGroup.style.display = '';
+    if(dateLabel) dateLabel.textContent = '初回請求予定日';
+    if(nextGroup) nextGroup.style.display = '';
+    if(dateHint)  dateHint.textContent = '請求書発行後、次回請求予定日を更新してください';
+  } else if(type === 'lump') {
+    // 一括: 請求日1回のみ
+    if(dateGroup) dateGroup.style.display = '';
+    if(dateLabel) dateLabel.textContent = '請求予定日';
+    if(nextGroup) nextGroup.style.display = 'none';
+    if(dateHint)  dateHint.textContent = '';
+  } else {
+    // 未設定
+    if(dateGroup) dateGroup.style.display = '';
+    if(dateLabel) dateLabel.textContent = '請求予定日';
+    if(nextGroup) nextGroup.style.display = 'none';
+    if(dateHint)  dateHint.textContent = '';
+  }
+  calcPaymentDueDate();
+}
+
+// 入金予定日を自動計算（請求日 + 入金サイト日数 → 翌月末営業日 or サイト指定日）
+function calcPaymentDueDate() {
+  const type       = document.getElementById('f-opp-billing-type')?.value || '';
+  const siteVal    = parseInt(document.getElementById('f-opp-billing-site')?.value || '0');
+  const billingDate = document.getElementById('f-opp-billing-date')?.value || '';
+  const payDueEl   = document.getElementById('f-opp-payment-due');
+  if(!payDueEl) return;
+
+  let baseDate = '';
+  if(type === 'monthly') {
+    // 月次: 当月末を基準
+    const now = new Date();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    baseDate = monthEnd.toISOString().split('T')[0];
+  } else if(billingDate) {
+    baseDate = billingDate;
+  }
+
+  if(!baseDate) { payDueEl.value = ''; return; }
+
+  if(siteVal > 0) {
+    // 入金サイト指定がある場合: 請求日 + サイト日数
+    const d = new Date(baseDate);
+    d.setDate(d.getDate() + siteVal);
+    payDueEl.value = d.toISOString().split('T')[0];
+  } else {
+    // デフォルト: 翌月末営業日
+    payDueEl.value = nextMonthEndBizDay(baseDate);
+  }
+}
+
 function saveOpportunity() {
   const name     = document.getElementById('f-opp-name').value.trim();
   const customer = document.getElementById('f-opp-customer').value.trim();
@@ -5020,6 +5145,13 @@ function saveOpportunity() {
     contractDate: existing?.contractDate || window._pendingContractDate?.contractDate || '',
     contractEnd:  existing?.contractEnd  || window._pendingContractDate?.contractEnd  || '',
     memo: document.getElementById('f-opp-memo').value,
+    // 売上回収時期
+    billingType:     document.getElementById('f-opp-billing-type')?.value || '',
+    billingSite:     parseInt(document.getElementById('f-opp-billing-site')?.value || '0') || 0,
+    billingDate:     document.getElementById('f-opp-billing-date')?.value || '',
+    nextBillingDate: document.getElementById('f-opp-next-billing-date')?.value || '',
+    paymentDue:      document.getElementById('f-opp-payment-due')?.value || '',
+    billingMemo:     document.getElementById('f-opp-billing-memo')?.value.trim() || '',
     stageHistory,
     nextAction: (nextDate || nextAction) ? { date: nextDate, action: nextAction, priority: nextPriority } : null,
     lastUpdated: new Date().toISOString().split('T')[0],
@@ -6995,6 +7127,51 @@ function autoGenerateAlerts() {
         category: 'contract'
       });
     }
+  });
+
+  // ──────────────────────────────────────────────
+  // F. 請求予定日間近なのに請求書未発行
+  //    billingDate が設定済み && billing === 0 && 請求予定日が7日以内
+  // ──────────────────────────────────────────────
+  const _todayDate = new Date(today);
+  Object.entries(db.monthly || {}).forEach(([ym, monthData]) => {
+    // 未来月のみ対象（過去月は別のアラートで対応）
+    Object.entries(monthData || {}).forEach(([oppId, m]) => {
+      if(!m.billingDate) return;          // 請求予定日が未設定はスキップ
+      if(m.billing > 0) return;           // 請求済みはスキップ
+      if(m.locked) return;                // 月次締め済みはスキップ
+      const o = db.opportunities.find(x => x.id === oppId);
+      if(!o) return;
+      const bDate = new Date(m.billingDate);
+      const daysLeft = Math.ceil((bDate - _todayDate) / 86400000);
+      // 7日以内（過去も含む）かつ未発行
+      if(daysLeft > 7) return;
+      const id7 = `AUTO-BILL7-${ym}-${oppId}`;
+      const id3 = `AUTO-BILL3-${ym}-${oppId}`;
+      if(daysLeft <= 3) {
+        // 3日以内: danger
+        if(!existingIds.has(id3)) newAlerts.push({
+          id: id3, type: 'danger',
+          title: daysLeft < 0
+            ? `請求書未発行（${Math.abs(daysLeft)}日超過）`
+            : daysLeft === 0
+              ? '請求書未発行（本日期限）'
+              : `請求書未発行（期限まで${daysLeft}日）`,
+          detail: `${o.name}（${ym}）— 請求予定日：${m.billingDate}（担当：${o.owner||'—'}）`,
+          date: m.billingDate, dismissed: false, oppId,
+          category: 'billing'
+        });
+      } else {
+        // 4〜7日以内: warning
+        if(!existingIds.has(id7)) newAlerts.push({
+          id: id7, type: 'warning',
+          title: `請求書未発行（期限まで${daysLeft}日）`,
+          detail: `${o.name}（${ym}）— 請求予定日：${m.billingDate}（担当：${o.owner||'—'}）`,
+          date: m.billingDate, dismissed: false, oppId,
+          category: 'billing'
+        });
+      }
+    });
   });
 
   if(newAlerts.length) { db.alerts = [...db.alerts, ...newAlerts]; save(); }
