@@ -5297,6 +5297,8 @@ function saveOrg() {
 // RENDER: DASHBOARD
 // ============================================================
 function renderDashboard() {
+  // 月セレクトを常に最新データで更新
+  initDashMonthSel();
   const msr = db.monthlySummary || {};
   const monthRange = getMonthRange();
   const prevRange  = getPrevMonthRange();
