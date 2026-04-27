@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
   <!-- Microsoft Authentication Library -->
   <!-- MSAL.js: 同期読み込みで確実にロード -->
-  <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"
     crossorigin="anonymous"
-    onerror="document.write('<script src=\'https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js\'><\/script>')"
+    onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';s.crossOrigin='anonymous';document.head.appendChild(s);})();"
   ></script>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
