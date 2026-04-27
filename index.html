@@ -5637,6 +5637,57 @@ function renderDashboard() {
   const budgetGap = budgetForPeriod > 0 ? totalSales - budgetForPeriod : null;
 
   // KPIカード
+  // ── 受注率ファネル計算（TEST案件除外） ──
+  const _nonTestOpps = db.opportunities.filter(o => !o.name.includes('TEST'));
+  // 各ステージに到達した案件数（stageHistory を参照、なければ現在のstageで判定）
+  const _hasStage = (o, stage) => {
+    if(o.stageHistory?.some(h => h.stage === stage)) return true;
+    const order = ['リード','提案中','見積提出','交渉中','受注','失注'];
+    const targetIdx = order.indexOf(stage);
+    const currentIdx = order.indexOf(o.stage);
+    return currentIdx >= targetIdx && targetIdx >= 0;
+  };
+  const _cntLead     = _nonTestOpps.length; // 案件化数（全案件 = リード段階以上）
+  const _cntProposal = _nonTestOpps.filter(o => _hasStage(o, '提案中')).length;
+  const _cntQuote    = _nonTestOpps.filter(o => _hasStage(o, '見積提出')).length;
+  const _cntNego     = _nonTestOpps.filter(o => _hasStage(o, '交渉中')).length;
+  const _cntWon      = _nonTestOpps.filter(o => _hasStage(o, '受注')).length;
+  const _rate = (n, d) => d > 0 ? Math.round(n / d * 100) : 0;
+  const winRateCard = `
+    <div class="metric-card" style="grid-column:1/-1;background:var(--bg-secondary);border:1px solid var(--border-medium);">
+      <div class="metric-label" style="font-size:12px;font-weight:600;margin-bottom:8px;">📊 受注率ファネル（TEST案件除外）</div>
+      <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;">
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntLead}</div>
+          <div style="font-size:10px;color:var(--text-muted);">案件化</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntProposal,_cntLead)}%</div>
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntProposal}</div>
+          <div style="font-size:10px;color:var(--text-muted);">提案</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntQuote,_cntProposal)}%</div>
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntQuote}</div>
+          <div style="font-size:10px;color:var(--text-muted);">見積</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntNego,_cntQuote)}%</div>
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntNego}</div>
+          <div style="font-size:10px;color:var(--text-muted);">交渉</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntWon,_cntNego)}%</div>
+        <div style="text-align:center;padding:6px 10px;background:var(--accent-light);border-radius:8px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntWon}</div>
+          <div style="font-size:10px;color:var(--text-muted);">受注</div>
+        </div>
+        <div style="margin-left:16px;padding:6px 12px;background:${_rate(_cntWon,_cntLead)>=30?'var(--green-light,#f0fdf4)':'var(--bg-primary)'};border-radius:8px;border:1px solid var(--border-medium);">
+          <div style="font-size:22px;font-weight:800;color:${_rate(_cntWon,_cntLead)>=30?'var(--green-dark)':'var(--accent)'};">受注率 ${_rate(_cntWon,_cntLead)}%</div>
+          <div style="font-size:10px;color:var(--text-muted);">案件化 → 受注</div>
+        </div>
+      </div>
+    </div>`;
+
   document.getElementById('dash-metrics').innerHTML = `
     <div class="metric-card blue">
       <div class="metric-label">売上実績（${modeLabel}${filterSuffix}）</div>
@@ -5868,56 +5919,6 @@ function renderDashboard() {
     });
   }
 
-  // ── 受注率ファネル計算（TEST案件除外） ──
-  const _nonTestOpps = db.opportunities.filter(o => !o.name.includes('TEST'));
-  // 各ステージに到達した案件数（stageHistory を参照、なければ現在のstageで判定）
-  const _hasStage = (o, stage) => {
-    if(o.stageHistory?.some(h => h.stage === stage)) return true;
-    const order = ['リード','提案中','見積提出','交渉中','受注','失注'];
-    const targetIdx = order.indexOf(stage);
-    const currentIdx = order.indexOf(o.stage);
-    return currentIdx >= targetIdx && targetIdx >= 0;
-  };
-  const _cntLead     = _nonTestOpps.length; // 案件化数（全案件 = リード段階以上）
-  const _cntProposal = _nonTestOpps.filter(o => _hasStage(o, '提案中')).length;
-  const _cntQuote    = _nonTestOpps.filter(o => _hasStage(o, '見積提出')).length;
-  const _cntNego     = _nonTestOpps.filter(o => _hasStage(o, '交渉中')).length;
-  const _cntWon      = _nonTestOpps.filter(o => _hasStage(o, '受注')).length;
-  const _rate = (n, d) => d > 0 ? Math.round(n / d * 100) : 0;
-  const winRateCard = `
-    <div class="metric-card" style="grid-column:1/-1;background:var(--bg-secondary);border:1px solid var(--border-medium);">
-      <div class="metric-label" style="font-size:12px;font-weight:600;margin-bottom:8px;">📊 受注率ファネル（TEST案件除外）</div>
-      <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;">
-        <div style="text-align:center;padding:6px 10px;">
-          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntLead}</div>
-          <div style="font-size:10px;color:var(--text-muted);">案件化</div>
-        </div>
-        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntProposal,_cntLead)}%</div>
-        <div style="text-align:center;padding:6px 10px;">
-          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntProposal}</div>
-          <div style="font-size:10px;color:var(--text-muted);">提案</div>
-        </div>
-        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntQuote,_cntProposal)}%</div>
-        <div style="text-align:center;padding:6px 10px;">
-          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntQuote}</div>
-          <div style="font-size:10px;color:var(--text-muted);">見積</div>
-        </div>
-        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntNego,_cntQuote)}%</div>
-        <div style="text-align:center;padding:6px 10px;">
-          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntNego}</div>
-          <div style="font-size:10px;color:var(--text-muted);">交渉</div>
-        </div>
-        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntWon,_cntNego)}%</div>
-        <div style="text-align:center;padding:6px 10px;background:var(--accent-light);border-radius:8px;">
-          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntWon}</div>
-          <div style="font-size:10px;color:var(--text-muted);">受注</div>
-        </div>
-        <div style="margin-left:16px;padding:6px 12px;background:${_rate(_cntWon,_cntLead)>=30?'var(--green-light,#f0fdf4)':'var(--bg-primary)'};border-radius:8px;border:1px solid var(--border-medium);">
-          <div style="font-size:22px;font-weight:800;color:${_rate(_cntWon,_cntLead)>=30?'var(--green-dark)':'var(--accent)'};">受注率 ${_rate(_cntWon,_cntLead)}%</div>
-          <div style="font-size:10px;color:var(--text-muted);">案件化 → 受注</div>
-        </div>
-      </div>
-    </div>`;
 
   // ── 今日のフォローアップウィジェット ──
   (function renderFollowupWidget() {
