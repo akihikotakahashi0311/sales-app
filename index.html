@@ -2370,15 +2370,19 @@ const MSAL_CONFIG = {
 
 const ONEDRIVE_SHARED_URL = '';
 const ONEDRIVE_OWNER_UPN = 'atakahashi@4din.com';
+// ログインユーザーがOneDriveオーナーかどうか判定
+function _isOdOwner() {
+  if(!_currentAccount || !ONEDRIVE_OWNER_UPN) return true; // 未ログイン時は制限しない
+  const loginEmail = (_currentAccount.username || _currentAccount.email || '').toLowerCase();
+  return loginEmail === ONEDRIVE_OWNER_UPN.toLowerCase();
+}
 const ONEDRIVE_FILE_PATH = '営業管理/sales_data.json';
 
 // 実際に使用するGraph APIエンドポイント（方式Bがデフォルト）
 function getGraphEndpoint() {
-  if(ONEDRIVE_OWNER_UPN) {
-    return `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_OWNER_UPN}/drive/root:/${ONEDRIVE_FILE_PATH}:`;
-  }
-  // フォールバック: 自分のAppRoot
-  return 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/sales_data.json:';
+  // SharePointチームサイト（cctjapancojp / 4DINALL / 共有資料）
+  const SHAREPOINT_DRIVE_ID = 'b!Yf0QIkoJpEe7mHomV2mvmlIARdLARQxGipXNt59TpYUH60DFtQoVSaNFze9_h2n7';
+  return `https://graph.microsoft.com/v1.0/drives/${SHAREPOINT_DRIVE_ID}/root:/sales_data.json:`;
 }
 
 let _msalApp = null;
@@ -3052,7 +3056,7 @@ function _buildHtml() {
 
 // ── メイン save() ──
 async function save() {
-  // OneDriveに保存（唯一のデータストア）
+  // OneDriveに保存（全員書き込み可）
   if(_odSyncEnabled) {
     saveToOneDrive().catch(e => {
       console.warn('[save] OneDrive保存失敗:', e.message);
@@ -8214,8 +8218,35 @@ function togglePaymentGroup(groupId) {
 function updateBillingDate(oppId, ym, date) {
   if(!db.monthly[ym]) db.monthly[ym] = {};
   if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
-  db.monthly[ym][oppId].billingDate = date;
+  const m = db.monthly[ym][oppId];
+  m.billingDate = date;
+
+  // 請求日確定時: 請求額が未入力の場合は案件の月次按分額を自動反映
+  if(date && !(m.billing > 0)) {
+    const opp = db.opportunities.find(o => o.id === oppId);
+    if(opp && opp.amount > 0) {
+      if(opp.billingType === 'monthly' && opp.start && opp.end) {
+        // 月次按分: 契約期間の月数で割る
+        const startYm = opp.start.slice(0,7);
+        const endYm   = opp.end.slice(0,7);
+        const totalMonths = monthsBetween(startYm, endYm) + 1;
+        if(totalMonths > 0) {
+          m.billing = Math.round((opp.amount / totalMonths) * 10000) / 10000;
+        }
+      } else if(opp.billingType === 'lump' || opp.billingType === 'milestone' || !opp.billingType) {
+        // 一括/マイルストーン/未設定: 案件総額を請求額にセット
+        m.billing = opp.amount;
+      }
+    }
+  }
+
+  // 入金予定日: 未設定の場合は翌月末営業日を自動計算
+  if(date && !m.paymentDate) {
+    m.paymentDate = nextMonthEndBizDay(date);
+  }
+
   save();
+  renderPayment();
   toast('請求日を更新しました', 'success');
 }
 
