@@ -548,6 +548,23 @@ tfoot td {
 }
 .search-bar input::placeholder { color: var(--text-muted); }
 
+/* ── ページ固有の検索窓を非表示（グローバル検索窓に統一） ── */
+.card-header .search-bar,
+#payment-search {
+  display: none !important;
+}
+/* グローバル検索窓はトップバーに常時表示 */
+#global-search-bar {
+  flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  #global-search-bar { width: 140px; }
+  #global-search-input { font-size: 12px; }
+}
+@media (max-width: 480px) {
+  #global-search-bar { width: 110px; }
+}
+
 /* ===== CSV EXPORT ===== */
 .export-btn {
   display: inline-flex;
@@ -1192,7 +1209,11 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </button>
       <div class="topbar-left">
         <h1 class="topbar-title" id="page-title">ダッシュボード</h1>
-        
+      </div>
+      <!-- グローバル検索窓（全ページ共通・常時同位置表示） -->
+      <div class="search-bar" id="global-search-bar" style="width:220px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="global-search-input" placeholder="検索..." oninput="onGlobalSearch(this.value)" style="width:100%;">
       </div>
       <div class="topbar-right" id="topbar-actions">
         <!-- 自動保存インジケーター -->
@@ -3105,6 +3126,37 @@ function resetData() {
 // ============================================================
 const PAGE_TITLES = {dashboard:'ダッシュボード', leads:'リード管理', opportunities:'案件管理', monthly:'月次管理', reports:'分析・レポート', alerts:'アラート', master:'マスタ管理'};
 
+// ページごとのグローバル検索 placeholder と対象 input ID
+const GLOBAL_SEARCH_CONFIG = {
+  leads:         { placeholder: '企業名・担当者で検索', targetId: 'lead-search' },
+  opportunities: { placeholder: '案件名・顧客で検索',   targetId: 'opp-search'  },
+  monthly:       { placeholder: '案件名・顧客で絞り込み', targetId: 'monthly-search' },
+  alerts:        { placeholder: 'アラートを検索',       targetId: 'alert-search' },
+  payment:       { placeholder: '顧客・案件名検索',      targetId: 'payment-search' },
+  reports:       { placeholder: '顧客名で検索',          targetId: 'customer-search' },
+};
+
+function onGlobalSearch(val) {
+  // 現在表示中のページの検索 input に同期して再描画
+  const page = document.querySelector('.nav-item.active')?.dataset?.page || '';
+  // reports ページは「顧客別」タブが選択中のときのみ customer-search に同期
+  if(page === 'reports') {
+    const repCust = document.getElementById('rep-customer');
+    if(repCust && repCust.style.display !== 'none') {
+      const target = document.getElementById('customer-search');
+      if(target) { target.value = val; target.dispatchEvent(new Event('input')); }
+    }
+    return;
+  }
+  const cfg = GLOBAL_SEARCH_CONFIG[page];
+  if(!cfg) return;
+  const target = document.getElementById(cfg.targetId);
+  if(target) {
+    target.value = val;
+    target.dispatchEvent(new Event('input'));
+  }
+}
+
 function navigate(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -3113,6 +3165,22 @@ function navigate(page) {
   document.getElementById('page-title').textContent = PAGE_TITLES[page];
   // モバイルではページ遷移後にサイドバーを閉じる
   if(window.innerWidth <= 768) closeSidebar();
+
+  // グローバル検索窓: placeholder 更新・値リセット
+  const gInput = document.getElementById('global-search-input');
+  const cfg = GLOBAL_SEARCH_CONFIG[page];
+  if(gInput) {
+    gInput.value = '';
+    gInput.placeholder = cfg ? cfg.placeholder : '検索...';
+  }
+  // ページ固有の検索 input もリセット
+  if(cfg) {
+    const target = document.getElementById(cfg.targetId);
+    if(target) target.value = '';
+  }
+  // 検索窓の表示/非表示（検索対応ページのみ表示）
+  const bar = document.getElementById('global-search-bar');
+  if(bar) bar.style.display = cfg ? 'flex' : 'none';
 
   if(page === 'dashboard') renderDashboard();
   else if(page === 'leads') renderLeads();
@@ -5122,7 +5190,8 @@ function calcPaymentDueDate() {
 // 請求予定日が確定した時点で当該月の請求額を自動更新
 // billingDate: 'YYYY-MM-DD'、amount: 万円、oppId: 案件ID
 // 既に手動入力済みの場合は上書きしない
-function autoSetBillingAmount(oppId, billingDate, amount) {
+// force=true のとき: ロック済み月を除き、既存の手動入力値も上書きする（案件編集モーダルからの保存時）
+function autoSetBillingAmount(oppId, billingDate, amount, force=false) {
   if(!billingDate || !amount) return;
   const ym = billingDate.slice(0, 7); // 'YYYY-MM'
   if(!ym.match(/^\d{4}-\d{2}$/)) return;
@@ -5135,36 +5204,36 @@ function autoSetBillingAmount(oppId, billingDate, amount) {
 
   const m = db.monthly[ym][oppId];
 
-  // 月次がロック済みの場合はスキップ
+  // 月次がロック済みの場合はスキップ（force でも不変）
   if(m.locked || isMonthLocked(ym)) return;
 
-  // 請求額: 手動入力済み(billing > 0)の場合は上書きしない
-  if(!(m.billing > 0)) {
+  // 請求額: force=true なら既存値を問わず上書き、それ以外は手動入力済み(billing > 0)なら保持
+  if(force || !(m.billing > 0)) {
     m.billing = amount;
   }
-  // 請求日: 未設定の場合のみ設定
-  if(!m.billingDate) {
+  // 請求予定日: force=true なら上書き、それ以外は未設定のみ設定
+  if(force || !m.billingDate) {
     m.billingDate = billingDate;
   }
-  // 入金予定日: 未設定の場合のみ翌月末営業日を自動設定
-  if(!m.paymentDate) {
+  // 入金予定日: force=true なら上書き、それ以外は未設定のみ翌月末営業日を自動設定
+  if(force || !m.paymentDate) {
     m.paymentDate = nextMonthEndBizDay(billingDate);
   }
 }
 
 // マイルストーン/一括の場合: billingDate の月に請求額を設定
 // 月次の場合: 契約期間の各月末に請求額を設定（月額按分ロジックを使用）
-function autoSetBillingFromOpp(opp) {
+function autoSetBillingFromOpp(opp, force=false) {
   if(!opp.billingType || !opp.amount) return;
 
   if(opp.billingType === 'lump' || opp.billingType === 'milestone') {
     // 一括/マイルストーン: 請求予定日の月に請求額を設定
     if(opp.billingDate) {
-      autoSetBillingAmount(opp.id, opp.billingDate, opp.amount);
+      autoSetBillingAmount(opp.id, opp.billingDate, opp.amount, force);
     }
     // マイルストーン: 次回請求予定日も設定
     if(opp.billingType === 'milestone' && opp.nextBillingDate) {
-      autoSetBillingAmount(opp.id, opp.nextBillingDate, opp.amount);
+      autoSetBillingAmount(opp.id, opp.nextBillingDate, opp.amount, force);
     }
   } else if(opp.billingType === 'monthly') {
     // 月次: 契約期間の各月末に月額を請求額として設定
@@ -5182,7 +5251,7 @@ function autoSetBillingFromOpp(opp) {
       const [y, m] = ym.split('-').map(Number);
       const lastDay = new Date(y, m, 0);
       const billingDate = lastDay.toISOString().split('T')[0];
-      autoSetBillingAmount(opp.id, billingDate, monthlyAmt);
+      autoSetBillingAmount(opp.id, billingDate, monthlyAmt, force);
       if(!firstBillingDate) firstBillingDate = billingDate;
       // 次月へ
       ym = m === 12 ? `${y+1}-01` : `${y}-${String(m+1).padStart(2,'0')}`;
@@ -5305,6 +5374,11 @@ function saveOpportunity() {
   }
   // 月額按分・進行基準の場合、スケジュールを月次DBに書き込む
   writeScheduleToMonthly(opp.id, opp.start, opp.recog);
+  // 案件編集モーダルから登録した請求予定日・請求予定額を月次DBに強制反映
+  // （手動入力済みの値があっても上書き。ロック済み月は除く）
+  if(opp.billingDate || opp.billingType) {
+    autoSetBillingFromOpp(opp, true);
+  }
   window._pendingContractDate = null;  // 一時保存をクリア
   save();
   // 新規登録時: '__new__' キーで保存されたPDFを正式IDに移行
@@ -9168,6 +9242,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   autoGenerateAlerts();
   renderDashboard();
   updateAlertBadge();
+  // グローバル検索窓: 初期ページ（ダッシュボード）では検索対象なし → 非表示
+  const _gbar = document.getElementById('global-search-bar');
+  if(_gbar) _gbar.style.display = 'none';
 
 });
 
