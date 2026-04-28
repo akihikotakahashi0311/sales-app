@@ -5756,17 +5756,62 @@ function saveUser() {
     const idx = db.users.findIndex(u => u.id === editId);
     if(idx >= 0) {
       const oldName = db.users[idx].name;
+      const oldDept = db.users[idx].dept;
       db.users.splice(idx, 1, userData);
-      // 担当者名が変わった場合、案件・リードを一括更新
-      if(oldName !== name) {
-        let updated = 0;
-        db.opportunities.forEach(o => { if(o.owner === oldName) { o.owner = name; updated++; } });
-        db.leads.forEach(l => { if(l.owner === oldName) { l.owner = name; } });
-        if(updated > 0) toast(`ユーザーを更新しました（案件${updated}件の担当者名を更新）`, 'success');
-        else toast('ユーザーを更新しました', 'success');
-      } else {
-        toast('ユーザーを更新しました', 'success');
+
+      const nameChanged = oldName !== name;
+      const deptChanged = oldDept !== userData.dept;
+      let updatedOpps = 0;
+
+      // 案件: 担当者名・部門を一括更新
+      db.opportunities.forEach(o => {
+        if(o.owner === oldName) {
+          if(nameChanged) o.owner = name;
+          if(nameChanged || deptChanged) o.dept = userData.dept || '—';
+          updatedOpps++;
+        }
+      });
+
+      // リード: 担当者名を更新
+      db.leads.forEach(l => {
+        if(l.owner === oldName && nameChanged) l.owner = name;
+      });
+
+      // 顧客: 担当者名を更新
+      if(db.customers) {
+        db.customers.forEach(c => {
+          if(c.owner === oldName && nameChanged) c.owner = name;
+        });
       }
+
+      // 活動記録: 担当者名を更新
+      if(db.activities) {
+        db.activities.forEach(a => {
+          if(a.owner === oldName && nameChanged) a.owner = name;
+        });
+      }
+
+      // タスク: 担当者名を更新
+      if(db.tasks) {
+        db.tasks.forEach(t => {
+          if(t.owner === oldName && nameChanged) t.owner = name;
+        });
+      }
+
+      // 月次: updatedBy を更新
+      if(nameChanged && db.monthly) {
+        Object.values(db.monthly).forEach(monthData => {
+          Object.values(monthData).forEach(m => {
+            if(m && m.updatedBy === oldName) m.updatedBy = name;
+          });
+        });
+      }
+
+      const changes = [];
+      if(nameChanged) changes.push('担当者名');
+      if(deptChanged) changes.push('部門');
+      const detail = changes.length ? `（${changes.join('・')}を変更、案件${updatedOpps}件に反映）` : '';
+      toast(`ユーザーを更新しました${detail}`, 'success');
     } else {
       // IDが見つからない場合は新規追加（フォールバック）
       db.users.push(userData);
