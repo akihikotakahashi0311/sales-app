@@ -2558,9 +2558,8 @@ async function loadFromOneDrive() {
     if(!db.pdfFiles) db.pdfFiles = {};
     // 先にユーザーを確定させてから描画（描画がcurrentUserを参照するため）
     initUserSession();
-    // 全画面を再描画
-    renderDashboard();
-    renderOpportunities();
+    // 現在表示中のページを再描画（全ページ共通）
+    refreshCurrentPage();
     // ユーザー選択の表示/非表示を更新
     _updateUserSelectorVisibility();
     toast('✅ OneDriveからデータを読み込みました', 'success');
@@ -3106,6 +3105,8 @@ async function save() {
   } else {
     toast('⚠️ OneDriveに接続されていません。データは保存されていません。', 'error');
   }
+  // データ変更後に現在のページを常に最新状態へ再描画
+  refreshCurrentPage();
 }
 
 
@@ -3125,6 +3126,25 @@ function resetData() {
 // NAVIGATION
 // ============================================================
 const PAGE_TITLES = {dashboard:'ダッシュボード', leads:'リード管理', opportunities:'案件管理', monthly:'月次管理', reports:'分析・レポート', alerts:'アラート', master:'マスタ管理'};
+
+// ============================================================
+// 現在表示中のページを再描画する共通関数
+// save() / loadFromOneDrive() 完了時に呼ばれ、画面を常に最新状態に保つ
+// ============================================================
+function refreshCurrentPage() {
+  const page = document.querySelector('.nav-item.active')?.dataset?.page || 'dashboard';
+  switch(page) {
+    case 'dashboard':     renderDashboard();     break;
+    case 'leads':         renderLeads();         break;
+    case 'opportunities': renderOpportunities(); break;
+    case 'monthly':       renderMonthly();       break;
+    case 'reports':       renderReports();       break;
+    case 'alerts':        renderAlerts();        break;
+    case 'payment':       renderPayment();       break;
+    case 'master':        renderMaster();        break;
+  }
+  updateAlertBadge();
+}
 
 // ページごとのグローバル検索 placeholder と対象 input ID
 const GLOBAL_SEARCH_CONFIG = {
@@ -3157,7 +3177,20 @@ function onGlobalSearch(val) {
   }
 }
 
+// ページごとの検索条件を保持するストア（タブ移動しても維持）
+const _searchState = {};
+
 function navigate(page) {
+  // 離れる前に現在ページの検索値を保存
+  const prevPage = document.querySelector('.nav-item.active')?.dataset?.page;
+  if(prevPage) {
+    const prevCfg = GLOBAL_SEARCH_CONFIG[prevPage];
+    if(prevCfg) {
+      const prevTarget = document.getElementById(prevCfg.targetId);
+      _searchState[prevPage] = prevTarget ? prevTarget.value : '';
+    }
+  }
+
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
@@ -3166,17 +3199,18 @@ function navigate(page) {
   // モバイルではページ遷移後にサイドバーを閉じる
   if(window.innerWidth <= 768) closeSidebar();
 
-  // グローバル検索窓: placeholder 更新・値リセット
+  // グローバル検索窓: 保存済みの値を復元（なければ空）
   const gInput = document.getElementById('global-search-input');
   const cfg = GLOBAL_SEARCH_CONFIG[page];
+  const savedVal = _searchState[page] || '';
   if(gInput) {
-    gInput.value = '';
+    gInput.value = savedVal;
     gInput.placeholder = cfg ? cfg.placeholder : '検索...';
   }
-  // ページ固有の検索 input もリセット
+  // ページ固有の検索 input にも復元
   if(cfg) {
     const target = document.getElementById(cfg.targetId);
-    if(target) target.value = '';
+    if(target) target.value = savedVal;
   }
   // 検索窓の表示/非表示（検索対応ページのみ表示）
   const bar = document.getElementById('global-search-bar');
@@ -7546,7 +7580,7 @@ function autoGenerateAlerts() {
     });
   });
 
-  if(newAlerts.length) { db.alerts = [...db.alerts, ...newAlerts]; save(); }
+  if(newAlerts.length) { db.alerts = [...db.alerts, ...newAlerts]; if(_odSyncEnabled) saveToOneDrive(); }
 }
 
 // ============================================================
