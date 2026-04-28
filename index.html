@@ -729,8 +729,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
   /* サイドバー: デフォルトで非表示、スライドイン */
   .sidebar {
     position: fixed;
-    left: -var(--sidebar-w);
-    left: -240px;
+    left: 0;
     top: 0;
     bottom: 0;
     z-index: 100;
@@ -784,9 +783,6 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
   /* モーダル */
   .modal { margin: 12px; width: calc(100% - 24px); max-height: calc(100vh - 24px); }
   .modal-body { max-height: calc(100vh - 160px); overflow-y: auto; }
-.pdf-drop-zone { border:2px dashed var(--border-medium);border-radius:8px;padding:14px 8px;text-align:center;cursor:pointer;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);transition:border-color 0.2s;min-height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px; }
-.pdf-drop-zone:hover { border-color:var(--accent);color:var(--accent); }
-.pdf-drop-zone.has-file { border-color:var(--green);background:var(--green-light,#f0fdf4); }
 
   /* スケジュールテーブル */
   .schedule-table-wrap { max-height: 200px; }
@@ -816,6 +812,11 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
   .metric-value { font-size: 18px; }
   .page { padding: 8px; }
 }
+
+/* ── PDFドロップゾーン（全幅適用） ── */
+.pdf-drop-zone { border:2px dashed var(--border-medium);border-radius:8px;padding:14px 8px;text-align:center;cursor:pointer;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);transition:border-color 0.2s;min-height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px; }
+.pdf-drop-zone:hover { border-color:var(--accent);color:var(--accent); }
+.pdf-drop-zone.has-file { border-color:var(--green);background:var(--green-light,#f0fdf4); }
 
 /* ── 担当者チェックボックスフィルター ── */
 .owner-filter-wrap {
@@ -1245,14 +1246,18 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           </div>
           <div id="ctrl-fy" style="display:flex;align-items:center;gap:8px;">
             <select class="form-control" style="height:34px;width:160px;font-size:13px;" id="dash-fy-sel" onchange="dashFY=this.value;renderDashboard()">
-              <option value="fy25">FY2025（24/10〜25/09）</option>
               <option value="fy24">FY2024（23/10〜24/09）</option>
+              <option value="fy25">FY2025（24/10〜25/09）</option>
               <option value="fy26">FY2026（25/10〜26/09）</option>
+              <option value="fy27">FY2027（26/10〜27/09）</option>
+              <option value="fy28">FY2028（27/10〜28/09）</option>
+              <option value="fy29">FY2029（28/10〜29/09）</option>
+              <option value="fy30">FY2030（29/10〜30/09）</option>
             </select>
           </div>
           <div id="ctrl-quarter" style="display:none;align-items:center;gap:8px;">
             <select class="form-control" style="height:34px;width:100px;font-size:13px;" id="dash-fy-q-sel" onchange="dashFY=this.value;renderDashboard()">
-              <option value="fy25">FY25</option><option value="fy24">FY24</option><option value="fy26">FY26</option>
+              <option value="fy24">FY24</option><option value="fy25">FY25</option><option value="fy26">FY26</option><option value="fy27">FY27</option><option value="fy28">FY28</option><option value="fy29">FY29</option><option value="fy30">FY30</option>
             </select>
             <div style="display:flex;background:var(--bg-secondary);border-radius:var(--radius-md);padding:3px;gap:2px;">
               <button class="dash-q-btn active" onclick="setDashQ('Q1',this)">Q1</button>
@@ -1716,9 +1721,13 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         <div id="rep-landing" style="display:none;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
             <select class="form-control" style="width:180px;height:34px;font-size:13px;" id="landing-fy" onchange="dashFY=this.value;renderLandingReport()">
-              <option value="fy25">FY2025（24/10〜25/09）</option>
               <option value="fy24">FY2024（23/10〜24/09）</option>
+              <option value="fy25">FY2025（24/10〜25/09）</option>
               <option value="fy26">FY2026（25/10〜26/09）</option>
+              <option value="fy27">FY2027（26/10〜27/09）</option>
+              <option value="fy28">FY2028（27/10〜28/09）</option>
+              <option value="fy29">FY2029（28/10〜29/09）</option>
+              <option value="fy30">FY2030（29/10〜30/09）</option>
             </select>
             <select class="form-control" style="width:120px;height:34px;font-size:13px;" id="landing-stage-filter" onchange="renderLandingReport()">
               <option value="">全フェーズ</option>
@@ -2748,11 +2757,19 @@ let dashQ = (()=>{
 })();
 let dashMonth = (()=>{ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); })();
 
-const FY_RANGES = {
-  fy24: {start:'2023-10', end:'2024-09'},
-  fy25: {start:'2024-10', end:'2025-09'},
-  fy26: {start:'2025-10', end:'2026-09'},
-};
+// FY年度レンジ（動的生成：FY24〜FY30まで自動対応）
+const FY_RANGES = (() => {
+  const ranges = {};
+  for(let fy = 24; fy <= 30; fy++) {
+    const key = 'fy' + fy;
+    const startYear = 1999 + fy; // fy25 → 2024
+    ranges[key] = {
+      start: startYear + '-10',
+      end:   (startYear + 1) + '-09',
+    };
+  }
+  return ranges;
+})();
 const Q_OFFSET = {Q1:[0,1,2], Q2:[3,4,5], Q3:[6,7,8], Q4:[9,10,11]};
 
 function addMonths(ym, n) {
@@ -2793,7 +2810,7 @@ function getPeriodLabel() {
 
 function getPrevMonthRange() {
   if(dashMode === 'fy') {
-    const fyKeys = ['fy24','fy25','fy26'];
+    const fyKeys = Object.keys(FY_RANGES).sort();
     const idx = fyKeys.indexOf(dashFY);
     if(idx <= 0) return [];
     const prevFY = fyKeys[idx-1];
@@ -2806,7 +2823,9 @@ function getPrevMonthRange() {
     const qs = ['Q1','Q2','Q3','Q4'];
     const qi = qs.indexOf(dashQ);
     const prevQ = qi > 0 ? qs[qi-1] : 'Q4';
-    const prevFY = qi > 0 ? dashFY : (dashFY === 'fy25' ? 'fy24' : dashFY);
+    const fyKeys = Object.keys(FY_RANGES).sort();
+    const fyIdx = fyKeys.indexOf(dashFY);
+    const prevFY = qi > 0 ? dashFY : (fyIdx > 0 ? fyKeys[fyIdx-1] : dashFY);
     const {start} = FY_RANGES[prevFY] || FY_RANGES.fy25;
     return (Q_OFFSET[prevQ] || Q_OFFSET.Q4).map(n => addMonths(start, n));
   }
@@ -2911,13 +2930,14 @@ function clearOppSelection() {
 function bulkDeleteOpps() {
   if(!selectedOpps.size) return;
   if(!confirm(selectedOpps.size + '件の案件を削除します。よろしいですか？')) return;
+  const count = selectedOpps.size;
   selectedOpps.forEach(id => _purgeOpp(id));
   save();
   clearOppSelection();
   renderOpportunities();
   renderDashboard();
   updateAlertBadge();
-  toast(selectedOpps.size + '件を削除しました', 'success');
+  toast(count + '件を削除しました', 'success');
 }
 
 function onLeadChk(el, id) {
@@ -7557,12 +7577,7 @@ function renderOwnerTable() {
 // ============================================================
 function renderLandingReport() {
   const fyCode = document.getElementById('landing-fy')?.value || dashFY || 'fy25';
-  const fyRanges = {
-    fy24:{start:'2023-10',end:'2024-09'},
-    fy25:{start:'2024-10',end:'2025-09'},
-    fy26:{start:'2025-10',end:'2026-09'}
-  };
-  const {start,end} = fyRanges[fyCode]||fyRanges.fy25;
+  const {start,end} = FY_RANGES[fyCode] || FY_RANGES.fy25;
   const msr = db.monthlySummary||{};
   const allMonths  = Object.keys(msr).sort();
   const fyKeys     = allMonths.filter(k=>k>=start&&k<=end);
