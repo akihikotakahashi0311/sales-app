@@ -5240,10 +5240,49 @@ function autoSetBillingFromOpp(opp, force=false) {
   if(!opp.billingType || !opp.amount) return;
 
   // ── lump（一括請求）──────────────────────────────
+  // 請求日の月にのみ全額を計上し、契約期間中のその他の月は請求額を 0 にする
   if(opp.billingType === 'lump') {
-    if(opp.billingDate) {
-      autoSetBillingAmount(opp.id, opp.billingDate, opp.amount, force);
+    if(!opp.billingDate) return;
+
+    const lumpBillingYm = opp.billingDate.slice(0, 7);
+
+    // 契約期間中の全月を収集（start/end があればその範囲、なければ db.monthly に存在する月）
+    let lumpTargetYms = [];
+    if(opp.start && opp.end) {
+      let ym = opp.start.slice(0, 7);
+      const endYm = opp.end.slice(0, 7);
+      while(ym <= endYm) {
+        lumpTargetYms.push(ym);
+        const [y, m] = ym.split('-').map(Number);
+        ym = m === 12 ? `${y+1}-01` : `${y}-${String(m+1).padStart(2,'0')}`;
+      }
+    } else {
+      // 契約期間未設定: db.monthly に存在する月 + 請求日の月
+      lumpTargetYms = [...new Set([
+        ...Object.keys(db.monthly || {}),
+        lumpBillingYm,
+      ])].sort();
     }
+
+    lumpTargetYms.forEach(ym => {
+      if(isMonthLocked(ym)) return;
+      if(!db.monthly[ym]) db.monthly[ym] = {};
+      if(!db.monthly[ym][opp.id]) {
+        db.monthly[ym][opp.id] = {sales:0, billing:0, cash:0, progress:0, cumProgress:0, locked:false};
+      }
+      const m = db.monthly[ym][opp.id];
+      if(m.locked) return;
+
+      if(ym === lumpBillingYm) {
+        // 請求日の月: 全額 + 請求予定日・入金予定日を設定
+        if(force || !(m.billing > 0)) m.billing = opp.amount;
+        if(force || !m.billingDate)   m.billingDate = opp.billingDate;
+        if(force || !m.paymentDate)   m.paymentDate = nextMonthEndBizDay(opp.billingDate);
+      } else {
+        // その他の月: 請求額を 0 に（force または未入力の場合）
+        if(force || !(m.billing > 0)) m.billing = 0;
+      }
+    });
     return;
   }
 
