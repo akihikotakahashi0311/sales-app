@@ -2199,6 +2199,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <button class="btn" onclick="generateQuotePdf(currentDetailOppId)" style="background:var(--green,#1e7e34);color:#fff;border:none;">📄 見積書作成</button>
       <select id="detail-invoice-ym-sel" class="form-control" style="display:none;height:34px;width:120px;font-size:12px;"></select>
       <button class="btn" id="detail-invoice-btn" style="display:none;background:#1565c0;color:#fff;border:none;" onclick="generateInvoice(currentDetailOppId, document.getElementById('detail-invoice-ym-sel').value)">🧾 請求書作成</button>
+      <button class="btn" id="detail-delivery-btn" style="display:none;background:#1D9E75;color:#fff;border:none;" onclick="generateDelivery(currentDetailOppId, document.getElementById('detail-invoice-ym-sel').value)">📦 納品書作成</button>
       <button class="btn btn-primary" id="detail-edit-btn">編集</button>
     </div>
   </div>
@@ -3481,8 +3482,8 @@ function editOrg(id) {
 // PDF添付ファイル管理
 // ============================================================
 // ストレージキー: pdf_{oppId}_{type} → [{name, size, data(base64), uploadedAt}]
-const PDF_TYPES = ['estimate', 'contract', 'invoice'];
-const PDF_LABELS = {estimate:'見積書', contract:'契約書', invoice:'請求書'};
+const PDF_TYPES = ['estimate', 'contract', 'invoice', 'delivery'];
+const PDF_LABELS = {estimate:'見積書', contract:'契約書', invoice:'請求書', delivery:'納品書'};
 let currentPdfOppId = null; // 編集中の案件ID
 
 // localStorageキー生成
@@ -4501,6 +4502,365 @@ function saveInvoiceToOpp() {
     if(currentDetailOppId === oppId) showOppDetail(oppId);
   };
   reader.readAsDataURL(blob);
+}
+
+
+// ============================================================
+// 納品書 生成・プレビュー・保存
+// ============================================================
+
+function generateDelivery(oppId, ym) {
+  const o = db.opportunities.find(x => x.id === oppId);
+  if(!o) return;
+  const mData   = (db.monthly[ym] || {})[oppId] || {};
+  const billing = mData.billing || 0;
+
+  const ci       = COMPANY_INFO;
+  const customer = o.customer || '';
+  const subject  = o.name || '';
+  const owner    = currentUser?.name || o.owner || '';
+  const ownerUser  = db.users.find(u => u.name === owner);
+  const today    = new Date();
+  const ymParts  = ym.split('-');
+  const ymLabel  = ymParts[0] + '年' + parseInt(ymParts[1]) + '月分';
+  const ymd      = String(today.getFullYear()) + String(today.getMonth()+1).padStart(2,'0') + String(today.getDate()).padStart(2,'0');
+  const delNo    = '4DIN-' + ymd + '-' + oppId + '-D';
+  const billingYen = Math.round(billing * 10000);
+
+  // モーダルを初期化して開く
+  document.getElementById('del-opp-id').value   = oppId;
+  document.getElementById('del-ym').value        = ym;
+  document.getElementById('del-no').value        = delNo;
+  document.getElementById('del-date').value      = today.toISOString().split('T')[0];
+  document.getElementById('del-customer').value  = customer;
+  document.getElementById('del-subject').value   = subject;
+
+  const delOwnerSel = document.getElementById('del-owner');
+  delOwnerSel.innerHTML = db.users.filter(u=>u.active)
+    .map(u => '<option value="'+u.name+'"'+(u.name===owner?' selected':'')+'>'+u.name+'</option>').join('');
+
+  document.getElementById('del-delivery').value  = 'お打合せの通り';
+  document.getElementById('del-payment').value   = '毎月末日締、翌々月末日迄';
+  document.getElementById('del-notes').value     = '・' + subject + '月額利用料（' + ymLabel + '）';
+
+  // 明細を初期化
+  const tbody = document.getElementById('del-items-tbody');
+  tbody.innerHTML = '';
+  addDelItem(subject + '月額利用料', 1, 'ヶ月', billingYen, false);
+
+  renderDelTotals();
+  openModal('delivery-maker');
+}
+
+function addDelItem(name, qty, unit, price, is8pct) {
+  const tbody = document.getElementById('del-items-tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100%;min-width:160px;" value="' + (name||'') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:60px;text-align:right;" type="number" min="1" value="' + (qty||1) + '" oninput="renderDelTotals()"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:60px;" value="' + (unit||'式') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:110px;text-align:right;" type="number" value="' + (price||0) + '" oninput="renderDelTotals()"></td>' +
+    '<td style="text-align:right;font-size:11px;padding:0 4px;" class="del-amt-cell">0</td>' +
+    '<td><select class="form-control" style="font-size:11px;padding:3px 4px;width:70px;" onchange="renderDelTotals()">' +
+      '<option value="10%"' + (!is8pct?' selected':'') + '>10%</option>' +
+      '<option value="8%"' + (is8pct?' selected':'') + '>8%</option>' +
+      '<option value="非課税">非課税</option>' +
+    '</select></td>' +
+    '<td><button class="btn btn-sm btn-danger" style="padding:2px 5px;font-size:10px;" onclick="this.closest('tr').remove();renderDelTotals();">×</button></td>';
+  tbody.appendChild(tr);
+  renderDelTotals();
+}
+
+function renderDelTotals() {
+  let sub10=0, sub8=0, subOther=0;
+  document.querySelectorAll('#del-items-tbody tr').forEach(tr => {
+    const qtyEl   = tr.querySelector('input[type="number"]:first-of-type');
+    const priceEl = tr.querySelectorAll('input[type="number"]')[1];
+    const taxSel  = tr.querySelector('select');
+    const amtEl   = tr.querySelector('.del-amt-cell');
+    if(!priceEl || !taxSel || !amtEl) return;
+    const amt = (parseFloat(qtyEl?.value)||1) * (parseFloat(priceEl.value)||0);
+    amtEl.textContent = '¥' + Math.round(amt).toLocaleString();
+    if(taxSel.value === '10%') sub10 += amt;
+    else if(taxSel.value === '8%') sub8 += amt;
+    else subOther += amt;
+  });
+  const subtotal = sub10 + sub8 + subOther;
+  const tax10    = Math.round(sub10 * 0.1);
+  const tax8     = Math.round(sub8 * 0.08);
+  const total    = Math.round(subtotal) + tax10 + tax8;
+  document.getElementById('del-sub10').textContent    = '¥' + Math.round(sub10).toLocaleString();
+  document.getElementById('del-sub8').textContent     = '¥' + Math.round(sub8).toLocaleString();
+  document.getElementById('del-tax10').textContent    = '¥' + tax10.toLocaleString();
+  document.getElementById('del-tax8').textContent     = '¥' + tax8.toLocaleString();
+  document.getElementById('del-subtotal').textContent = '¥' + Math.round(subtotal).toLocaleString();
+  document.getElementById('del-tax').textContent      = '¥' + (tax10 + tax8).toLocaleString();
+  document.getElementById('del-total').textContent    = '¥' + total.toLocaleString();
+  document.getElementById('del-total-header').textContent = total.toLocaleString();
+}
+
+function _buildDeliveryHtml() {
+  const oppId    = document.getElementById('del-opp-id').value;
+  const delNo    = document.getElementById('del-no').value;
+  const delDate  = document.getElementById('del-date').value;
+  const customer = document.getElementById('del-customer').value.trim();
+  const subject  = document.getElementById('del-subject').value.trim();
+  const owner    = document.getElementById('del-owner').value.trim();
+  const delivery = document.getElementById('del-delivery').value;
+  const payment  = document.getElementById('del-payment').value;
+  const notes    = document.getElementById('del-notes').value;
+
+  const ci = COMPANY_INFO;
+  const ownerUser  = db.users.find(u => u.name === owner);
+  const ownerEmail = ownerUser?.email || ci.email;
+  const dateStr = delDate ? delDate.replace(/(\d{4})-(\d{2})-(\d{2})/, (_,y,m,d)=>y+'年'+parseInt(m)+'月'+parseInt(d)+'日') : '';
+  const logoEl  = document.querySelector('.sidebar-logo img');
+  const logoSrc = logoEl ? logoEl.src : '';
+
+  const items = [];
+  document.querySelectorAll('#del-items-tbody tr').forEach((tr, i) => {
+    const inputs = tr.querySelectorAll('input');
+    const sel    = tr.querySelector('select');
+    const name   = inputs[0]?.value || '';
+    const qty    = parseFloat(inputs[1]?.value)||1;
+    const unit   = inputs[2]?.value || '式';
+    const price  = parseFloat(inputs[3]?.value)||0;
+    const tax    = sel?.value || '10%';
+    const amt    = Math.round(qty * price);
+    items.push({no:i+1, name, qty, unit, price:Math.round(price), amt, tax});
+  });
+
+  let sub10=0, sub8=0, subOther=0;
+  items.forEach(it => {
+    if(it.tax==='10%') sub10 += it.amt;
+    else if(it.tax==='8%') sub8 += it.amt;
+    else subOther += it.amt;
+  });
+  const subtotal = sub10 + sub8 + subOther;
+  const tax10    = Math.round(sub10 * 0.1);
+  const tax8     = Math.round(sub8 * 0.08);
+  const total    = subtotal + tax10 + tax8;
+  const fmt      = v => '¥' + Math.round(v).toLocaleString();
+
+  const itemRows = items.map(it =>
+    `<tr>
+      <td>${it.no}</td>
+      <td>${it.name}</td>
+      <td class="center">${it.qty} ${it.unit}</td>
+      <td class="right">${it.price.toLocaleString()}</td>
+      <td class="right">${fmt(it.amt)}</td>
+      <td class="center">${it.tax !== '非課税' ? '※' : ''}</td>
+    </tr>`
+  ).join('');
+  const emptyRows = Math.max(0, 12 - items.length);
+  const blankRows = Array(emptyRows).fill('<tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<title>納品書 ${delNo}</title>
+<style>
+  @page { size: 210mm 297mm; margin: 10mm 13mm; }
+  html, body { width: 210mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic","Meiryo",sans-serif;
+         font-size: 9pt; color: #111; line-height: 1.45; }
+  h1 { text-align:center; font-size:18pt; letter-spacing:0.8em; margin-bottom:12px; }
+  .delno-row { display:flex; justify-content:flex-end; gap:24px; font-size:9pt; margin-bottom:10px; }
+  .top-row { display:flex; gap:16px; margin-bottom:10px; }
+  .top-left { flex:1; }
+  .customer-name { font-size:14pt; font-weight:700; border-bottom:2px solid #111;
+                   padding-bottom:3px; margin-bottom:8px; display:inline-block; }
+  .subject-wrap { margin-bottom:6px; }
+  .subject-title { font-weight:700; font-size:9pt; }
+  .subject-line  { font-weight:700; font-size:10pt; margin-top:2px; }
+  .intro { font-size:9pt; margin-top:8px; }
+  .cond-row { display:flex; gap:0; margin-top:10px; font-size:9pt; }
+  .cond-label { width:72px; color:#444; flex-shrink:0; }
+  .total-box { background:#f0f0f0; border:1px solid #999; padding:6px 14px;
+               display:inline-block; margin-top:10px; }
+  .total-box .tlbl { font-size:9pt; font-weight:700; }
+  .total-box .tamt { font-size:14pt; font-weight:700; margin-left:12px; }
+  .total-box .ttax { font-size:8pt; color:#444; }
+  .top-right { min-width:220px; text-align:left; font-size:8.5pt; line-height:1.7; }
+  .top-right .cname { font-size:11pt; font-weight:700; margin-bottom:2px; }
+  table.items { width:100%; border-collapse:collapse; margin:10px 0 6px; font-size:9pt; }
+  table.items th { background:#d0d0d0; border:1px solid #999; padding:4px 6px; text-align:center; font-weight:600; }
+  table.items td { border:1px solid #bbb; padding:4px 6px; height:20px; }
+  table.items td.center { text-align:center; }
+  table.items td.right  { text-align:right; }
+  .summary-area { display:flex; justify-content:flex-end; gap:16px; margin-top:6px; }
+  .totals-table { border-collapse:collapse; font-size:9pt; }
+  .totals-table td { border:1px solid #bbb; padding:4px 10px; }
+  .totals-table td:last-child { text-align:right; min-width:90px; }
+  .totals-table tr.total-row { background:#1a50a0; color:#fff; font-weight:700; }
+  .tax-summary { border-collapse:collapse; font-size:8.5pt; }
+  .tax-summary td { border:1px solid #bbb; padding:3px 8px; }
+  .tax-summary td:last-child { text-align:right; }
+  .note-box { border:1px solid #bbb; padding:8px 10px; font-size:8.5pt; margin-top:8px; min-height:60px; }
+  .note-box .ntitle { font-weight:700; margin-bottom:4px; }
+  .note-mark { font-size:8pt; color:#444; margin-top:4px; }
+  .no-print { background:#f0f4ff; border-bottom:1px solid #c0d0f0; padding:8px 16px;
+              display:flex; align-items:center; justify-content:space-between; }
+  @media print {
+    body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .no-print { display:none !important; }
+  }
+</style>
+</head><body>
+<div class="no-print">
+  <span style="font-size:12px;color:#555;">印刷ダイアログで「送信先：PDFに保存」を選択してください</span>
+  <div>
+    <button onclick="window.print()" style="padding:6px 16px;background:#1a50a0;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;margin-right:8px;">🖨 印刷 / PDF保存</button>
+    <button onclick="window.close()" style="padding:6px 10px;background:#ddd;border:none;border-radius:6px;font-size:12px;cursor:pointer;">閉じる</button>
+  </div>
+</div>
+<div style="padding:12px 0 0;">
+<h1>納　品　書</h1>
+<div class="delno-row">
+  <span>納品No.　<strong>${delNo}</strong></span>
+  <span>納品日　<strong>${dateStr}</strong></span>
+</div>
+<div class="top-row">
+  <div class="top-left">
+    <div><span class="customer-name">${customer}　御中</span></div>
+    <div class="subject-wrap">
+      <div class="subject-title">${subject}</div>
+      <div class="subject-line">件名：管理運用業務</div>
+    </div>
+    <div class="intro">下記のとおり、納品申し上げます。</div>
+    <div class="cond-row" style="margin-top:12px;"><span class="cond-label">納期：</span><span>${delivery}</span></div>
+    <div class="cond-row"><span class="cond-label">支払条件：</span><span>${payment}</span></div>
+    <div class="total-box" style="margin-top:14px;">
+      <span class="tlbl">合計金額</span>
+      <span class="tamt">${total.toLocaleString()}</span>
+      <span class="ttax">（税込）</span>
+    </div>
+  </div>
+  <div class="top-right">
+    ${logoSrc ? '<img src="'+logoSrc+'" alt="4DIN" style="height:36px;width:auto;margin-bottom:4px;display:block;">' : ''}
+    <div class="cname">${ci.name}　代表取締役　高橋精彦</div>
+    登録番号：${ci.regNo}<br>
+    〒105-0004<br>
+    東京都港区新橋2-20-15<br>
+    新橋駅前ビル1号館805<br>
+    TEL：${ci.tel}<br>
+    担当：　${owner}<br>
+    E-Mail：<a href="mailto:${ownerEmail}" style="color:#1a50a0;">${ownerEmail}</a>
+  </div>
+</div>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:36px;">No.</th>
+      <th style="text-align:left;">摘要</th>
+      <th style="width:80px;">数量</th>
+      <th style="width:100px;">単価（円）</th>
+      <th style="width:100px;">金額（円）</th>
+      <th style="width:36px;">※</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${itemRows}
+    ${blankRows}
+    <tr>
+      <td colspan="3" style="border:none;"></td>
+      <td style="background:#e8e8e8;font-weight:600;text-align:center;">小計</td>
+      <td class="right">${fmt(subtotal)}</td>
+      <td style="border:none;"></td>
+    </tr>
+    <tr>
+      <td colspan="3" style="border:none;"></td>
+      <td style="background:#e8e8e8;font-weight:600;text-align:center;">消費税</td>
+      <td class="right">${fmt(tax10+tax8)}</td>
+      <td style="border:none;"></td>
+    </tr>
+    <tr>
+      <td colspan="3" style="border:none;"></td>
+      <td style="background:#1a50a0;color:#fff;font-weight:700;text-align:center;">合計</td>
+      <td class="right" style="background:#1a50a0;color:#fff;font-weight:700;">${fmt(total)}</td>
+      <td style="border:none;"></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="summary-area">
+  <table class="tax-summary">
+    <tr><td>10%対象</td><td>${fmt(sub10)}</td></tr>
+    <tr><td>10%消費税</td><td>${fmt(tax10)}</td></tr>
+    <tr><td>8%対象</td><td>${fmt(sub8)}</td></tr>
+    <tr><td>8%消費税</td><td>${fmt(tax8)}</td></tr>
+  </table>
+</div>
+
+<div class="note-box">
+  <div class="ntitle">備考</div>
+  <div style="min-height:36px;">${notes ? notes.replace(/\n/g,'<br>') : ''}</div>
+</div>
+<div class="note-mark">※はオプションのお見積りです。</div>
+</div>
+</body></html>`;
+
+  return {oppId, delNo, subject, customer, total, html};
+}
+
+function previewDelivery() {
+  const result = _buildDeliveryHtml();
+  const previewHtml = result.html.replace(
+    '<div class="no-print">
+  <span style="font-size:12px;color:#555;">印刷ダイアログで「送信先：PDFに保存」を選択してください</span>
+  <div>
+    <button onclick="window.print()" style="padding:6px 16px;background:#1a50a0;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;margin-right:8px;">🖨 印刷 / PDF保存</button>
+    <button onclick="window.close()" style="padding:6px 10px;background:#ddd;border:none;border-radius:6px;font-size:12px;cursor:pointer;">閉じる</button>
+  </div>
+</div>',
+    '<div class="no-print" style="background:#f0f4ff;border-bottom:1px solid #c0d0f0;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
+    + '<span style="font-size:12px;color:#555;">内容を確認して印刷またはファイルに保存してください</span>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button onclick="window.print()" style="padding:7px 18px;background:#1a50a0;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">🖨 印刷</button>'
+    + '<button id="save-btn" onclick="_saveFromPreview()" style="padding:7px 18px;background:#1e7e34;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">💾 案件に保存</button>'
+    + '<button onclick="window.close()" style="padding:7px 12px;background:#ddd;border:none;border-radius:6px;font-size:13px;cursor:pointer;">閉じる</button>'
+    + '</div></div>'
+  );
+  const saveData = {
+    oppId:    result.oppId,
+    delNo:    result.delNo,
+    customer: result.customer,
+    ym:       document.getElementById('del-ym')?.value || '',
+    html:     result.html
+  };
+  const win = window.open('', '_blank', 'width=960,height=1100');
+  if(!win) { toast('ポップアップがブロックされました。', 'error'); return; }
+  win._saveData    = saveData;
+  win._parentApp   = window;
+  win.document.write(previewHtml);
+  win._saveFromPreview = function() {
+    const d = win._saveData;
+    if(!d) return;
+    const blob = new Blob([d.html], {type: 'text/html;charset=utf-8'});
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const fileName = d.customer + '様_納品書_' + d.delNo + '.html';
+      win._parentApp.saveDeliveryPdfFromPreview(d.oppId, fileName, e.target.result, blob.size);
+      const btn = win.document.getElementById('save-btn');
+      if(btn) { btn.textContent = '✓ 保存済'; btn.style.background = '#555'; btn.disabled = true; }
+    };
+    reader.readAsDataURL(blob);
+  };
+  win.document.close();
+  closeModal('delivery-maker');
+}
+
+function saveDeliveryPdfFromPreview(oppId, fileName, dataUrl, size) {
+  const files = getPdfFiles(oppId, 'delivery');
+  const existing = files.findIndex(f => f.name === fileName);
+  const entry = {name: fileName, data: dataUrl, size, date: new Date().toISOString()};
+  if(existing >= 0) files[existing] = entry; else files.push(entry);
+  savePdfFiles(oppId, 'delivery', files);
+  save();
+  toast('納品書を案件に保存しました', 'success');
+  if(currentDetailOppId === oppId) showOppDetail(oppId);
 }
 
 // 旧関数の互換エイリアス
@@ -5636,20 +5996,21 @@ function showOppDetail(id) {
   }).map(([ym]) => ym).sort().reverse();
 
   const _invBtn = document.getElementById('detail-invoice-btn');
+  const _delBtn = document.getElementById('detail-delivery-btn');
   const _invSel = document.getElementById('detail-invoice-ym-sel');
-  if(_invBtn && _invSel) {
+  if(_invSel) {
     if(_billingMonths.length > 0) {
-      // 月選択セレクタを更新
       _invSel.innerHTML = _billingMonths.map(ym => {
         const [y, m] = ym.split('-');
         return `<option value="${ym}">${y}年${parseInt(m)}月</option>`;
       }).join('');
-      // 当月が含まれていれば当月を選択、なければ最新月
       _invSel.value = _billingMonths.includes(currentMonth) ? currentMonth : _billingMonths[0];
-      _invBtn.style.display = '';
+      if(_invBtn) _invBtn.style.display = '';
+      if(_delBtn) _delBtn.style.display = '';
       _invSel.style.display = _billingMonths.length > 1 ? '' : 'none';
     } else {
-      _invBtn.style.display = 'none';
+      if(_invBtn) _invBtn.style.display = 'none';
+      if(_delBtn) _delBtn.style.display = 'none';
       _invSel.style.display = 'none';
     }
   }
@@ -6560,14 +6921,17 @@ function renderOpportunities() {
 
   // 担当者・部門フィルターの選択肢を動的生成
   const ownerSel = document.getElementById('opp-owner-filter');
-  if(ownerSel && ownerSel.options.length <= 1) {
-    const owners = [...new Set(db.opportunities.map(o=>o.owner).filter(Boolean))].sort();
+  if(ownerSel) {
+    const owners = _getOwnerList(); // マスタ基準・毎回再構築
     ownerSel.innerHTML = '<option value="">全担当者</option>' + owners.map(o=>`<option>${o}</option>`).join('');
     if(of) ownerSel.value = of;
   }
   const deptSel = document.getElementById('opp-dept-filter');
-  if(deptSel && deptSel.options.length <= 1) {
-    const depts = [...new Set(db.opportunities.map(o=>o.dept||'').filter(Boolean))].sort();
+  if(deptSel) { // 毎回再構築（マスタ変更を即反映）
+    // 部門もマスタ（db.orgs）基準、なければユーザーのdeptから収集
+    const depts = db.orgs && db.orgs.length
+      ? db.orgs.map(o => o.name).filter(Boolean).sort()
+      : [...new Set((db.users||[]).map(u=>u.dept||'').filter(Boolean))].sort();
     deptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option>${d}</option>`).join('');
     if(df) deptSel.value = df;
   }
@@ -6672,8 +7036,14 @@ function changeMonthPicker(val) {
 // selectedOwners = Set([]) → 誰も選択なし（0件）
 let selectedOwners = null;
 
+// 担当者リストはユーザーマスタ（db.users）を正とする
+// アクティブユーザーを名前順で返す
 function _getOwnerList() {
-  return [...new Set(db.opportunities.map(o => o.owner).filter(Boolean))].sort();
+  return (db.users || [])
+    .filter(u => u.active !== false)
+    .map(u => u.name)
+    .filter(Boolean)
+    .sort();
 }
 
 function toggleOwnerFilter(e) {
@@ -6806,10 +7176,12 @@ function renderMonthly() {
   const mrf = document.getElementById('monthly-recog-filter')?.value||'';
   const mcf = document.getElementById('monthly-customer-filter')?.value||'';
 
-  // 部門フィルターの選択肢を動的生成
+  // 部門フィルターの選択肢を動的生成（マスタ基準・毎回再構築）
   const mDeptSel = document.getElementById('monthly-dept-filter');
-  if(mDeptSel && mDeptSel.options.length <= 1) {
-    const depts = [...new Set(db.opportunities.map(o=>o.dept||'').filter(Boolean))].sort();
+  if(mDeptSel) {
+    const depts = db.orgs && db.orgs.length
+      ? db.orgs.map(o => o.name).filter(Boolean).sort()
+      : [...new Set((db.users||[]).map(u=>u.dept||'').filter(Boolean))].sort();
     mDeptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option>${d}</option>`).join('');
     if(mdf) mDeptSel.value = mdf;
   }
@@ -6933,6 +7305,8 @@ function renderMonthly() {
       <td style="white-space:nowrap;">
         <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;"
           onclick="generateInvoice('${o.id}','${currentMonth}')">請求書作成</button>
+        <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-left:4px;background:var(--green);color:#fff;border-color:var(--green);"
+          onclick="generateDelivery('${o.id}','${currentMonth}')">納品書作成</button>
       </td>
     </tr>`;
   }).join('');
@@ -7754,7 +8128,8 @@ function renderSegTrend() {
 // ============================================================
 function renderOwnerTab() {
   const monthData = db.monthly[reportMonth] || {};
-  const owners = [...new Set(db.opportunities.map(o=>o.owner).filter(Boolean))];
+  // 担当者リストはマスタ基準（案件がない担当者も含む）
+  const owners = _getOwnerList();
   const ownerData = {};
   owners.forEach(ow=>{ownerData[ow]={sales:0,billing:0,amount:0,count:0,won:0,pipe:0};});
   db.opportunities.forEach(o=>{
@@ -7798,7 +8173,10 @@ function renderOwnerTab() {
   });
 
   const sel = document.getElementById('owner-filter');
-  if(sel) sel.innerHTML = '<option value="">全担当者</option>'+owners.map(o=>`<option>${o}</option>`).join('');
+  if(sel) {
+    const masterOwners = _getOwnerList(); // マスタ基準
+    sel.innerHTML = '<option value="">全担当者</option>'+masterOwners.map(o=>`<option>${o}</option>`).join('');
+  }
   renderOwnerTable();
 }
 
@@ -9670,6 +10048,108 @@ function saveTask() {
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('invoice-maker')">キャンセル</button>
       <button class="btn btn-primary" onclick="previewInvoice()">👁 印刷プレビュー</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delivery Maker Modal -->
+<div class="modal-overlay" id="modal-delivery-maker">
+  <div class="modal" style="max-width:720px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header">
+      <div class="modal-title">📦 納品書作成</div>
+      <button class="modal-close" onclick="closeModal('delivery-maker')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="del-opp-id">
+      <input type="hidden" id="del-ym">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label required">納品番号</label>
+          <input class="form-control" id="del-no">
+        </div>
+        <div class="form-group">
+          <label class="form-label required">納品日</label>
+          <input class="form-control" id="del-date" type="date" style="height:34px;font-size:13px;">
+        </div>
+        <div class="form-group">
+          <label class="form-label required">担当者</label>
+          <select class="form-control" id="del-owner"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label required">宛先（顧客名）</label>
+          <input class="form-control" id="del-customer">
+        </div>
+        <div class="form-group" style="flex:2;">
+          <label class="form-label required">件名（サービス名）</label>
+          <input class="form-control" id="del-subject">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">納期</label>
+          <input class="form-control" id="del-delivery">
+        </div>
+        <div class="form-group">
+          <label class="form-label">支払条件</label>
+          <input class="form-control" id="del-payment">
+        </div>
+      </div>
+
+      <!-- 明細 -->
+      <div style="font-weight:600;font-size:13px;margin:14px 0 8px;border-bottom:2px solid var(--border-medium);padding-bottom:6px;">
+        明細
+        <button class="btn btn-sm" onclick="addDelItem('',1,'式',0,false)" style="float:right;font-size:11px;">＋ 行追加</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
+          <thead>
+            <tr style="background:var(--bg-secondary);">
+              <th style="padding:5px;text-align:left;">摘要</th>
+              <th style="padding:5px;text-align:center;width:65px;">数量</th>
+              <th style="padding:5px;text-align:center;width:55px;">単位</th>
+              <th style="padding:5px;text-align:right;width:115px;">単価（円）</th>
+              <th style="padding:5px;text-align:right;width:90px;">金額</th>
+              <th style="padding:5px;text-align:center;width:70px;">税区分</th>
+              <th style="padding:5px;width:30px;"></th>
+            </tr>
+          </thead>
+          <tbody id="del-items-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- 合計 -->
+      <div style="display:flex;justify-content:space-between;margin-top:14px;gap:16px;flex-wrap:wrap;">
+        <table style="font-size:12px;border-collapse:collapse;">
+          <tr><td style="padding:3px 12px;color:var(--text-secondary);">10%対象</td><td style="padding:3px 8px;text-align:right;min-width:90px;" id="del-sub10">¥0</td></tr>
+          <tr><td style="padding:3px 12px;color:var(--text-secondary);">10%消費税</td><td style="padding:3px 8px;text-align:right;" id="del-tax10">¥0</td></tr>
+          <tr><td style="padding:3px 12px;color:var(--text-secondary);">8%対象</td><td style="padding:3px 8px;text-align:right;" id="del-sub8">¥0</td></tr>
+          <tr><td style="padding:3px 12px;color:var(--text-secondary);">8%消費税</td><td style="padding:3px 8px;text-align:right;" id="del-tax8">¥0</td></tr>
+        </table>
+        <table style="font-size:12px;border-collapse:collapse;">
+          <tr><td style="padding:3px 12px;color:var(--text-secondary);">小計</td><td style="padding:3px 8px;text-align:right;min-width:110px;" id="del-subtotal">¥0</td></tr>
+          <tr><td style="padding:3px 12px;color:var(--text-secondary);">消費税合計</td><td style="padding:3px 8px;text-align:right;" id="del-tax">¥0</td></tr>
+          <tr style="background:var(--accent);color:#fff;font-weight:700;">
+            <td style="padding:5px 12px;border-radius:4px 0 0 4px;">合計（税込）</td>
+            <td style="padding:5px 8px;text-align:right;border-radius:0 4px 4px 0;" id="del-total">¥0</td>
+          </tr>
+        </table>
+      </div>
+      <div style="text-align:right;font-size:11px;color:var(--text-muted);margin-top:4px;">
+        合計金額：<strong id="del-total-header" style="color:var(--text-primary);">0</strong> 円（税込）
+      </div>
+
+      <!-- 備考 -->
+      <div class="form-group" style="margin-top:14px;">
+        <label class="form-label">備考</label>
+        <textarea class="form-control" id="del-notes" rows="3"
+          placeholder="例：・〇〇月額利用料（2026年4月分）"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('delivery-maker')">キャンセル</button>
+      <button class="btn btn-primary" onclick="previewDelivery()">👁 印刷プレビュー</button>
     </div>
   </div>
 </div>
