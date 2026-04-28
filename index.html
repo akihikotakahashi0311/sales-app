@@ -1584,9 +1584,9 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                   <th style="padding:8px;text-align:left;min-width:80px;" class="sortable sort-desc" data-key="month" onclick="sortPayment('month')">対象月</th>
                   <th style="padding:8px;text-align:left;min-width:140px;" class="sortable" onclick="sortPayment('customer')">顧客</th>
                   <th style="padding:8px;text-align:left;min-width:180px;">案件名 / 担当者</th>
-                  <th style="padding:8px;text-align:right;">請求額</th>
-                  <th style="padding:8px;text-align:right;">入金額</th>
-                  <th style="padding:8px;text-align:right;">未回収額</th>
+                  <th style="padding:8px;text-align:right;">請求額<br><span style="font-size:10px;font-weight:400;opacity:0.7;">税込</span></th>
+                  <th style="padding:8px;text-align:right;">入金額<br><span style="font-size:10px;font-weight:400;opacity:0.7;">税込</span></th>
+                  <th style="padding:8px;text-align:right;">未回収額<br><span style="font-size:10px;font-weight:400;opacity:0.7;">税込</span></th>
                   <th style="padding:8px;text-align:center;">ステータス</th>
                   <th style="padding:8px;text-align:center;">請求日</th>
                   <th style="padding:8px;text-align:center;">入金日</th>
@@ -8174,9 +8174,9 @@ function renderPayment() {
           <span id="${groupId}-icon" style="margin-right:6px;font-size:11px;">▼</span>${cust}
         </td>
         <td style="padding:8px 10px;font-size:11px;color:var(--text-muted);">${custRows.length}件</td>
-        <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(sumBilling)}</td>
-        <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--green);">${fmt(sumCash)}</td>
-        <td style="padding:8px 10px;text-align:right;font-weight:700;color:${sumUncollected>0?'var(--red-dark)':'var(--text-muted)'};">¥${sumUncollected.toLocaleString()}万</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(sumBilling)}<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込${fmt(Math.round(sumBilling*1.1*10000)/10000)}</div></td>
+        <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--green);">${fmt(sumCash)}<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込${fmt(Math.round(sumCash*1.1*10000)/10000)}</div></td>
+        <td style="padding:8px 10px;text-align:right;font-weight:700;color:${sumUncollected>0?'var(--red-dark)':'var(--text-muted)'};">¥${sumUncollected.toLocaleString()}万<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込¥${Math.round(sumUncollected*1.1*10)/10}万</div></td>
         <td colspan="5" style="padding:8px 10px;text-align:center;">${allDone?'<span class="badge badge-green">完了</span>':''}</td>
       </tr>`;
     // 案件詳細行
@@ -8185,9 +8185,9 @@ function renderPayment() {
         <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">${monthLabel(r.ym)}</td>
         <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${r.o.owner||'—'}</td>
         <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${r.o.id}');return false;">${r.o.name}</a></td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;">${fmt(r.billing)}</td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;color:var(--green);">${fmt(r.cash)}</td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;color:${r.uncollected>0?'var(--red-dark)':'var(--text-muted)'};">${fmt(r.uncollected)}</td>
+        <td style="padding:5px 8px;text-align:right;font-size:12px;">${fmt(r.billing)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.billing*1.1*10000)/10000)}</div></td>
+        <td style="padding:5px 8px;text-align:right;font-size:12px;color:var(--green);">${fmt(r.cash)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.cash*1.1*10000)/10000)}</div></td>
+        <td style="padding:5px 8px;text-align:right;font-size:12px;color:${r.uncollected>0?'var(--red-dark)':'var(--text-muted)'};">${fmt(r.uncollected)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.uncollected*1.1*10000)/10000)}</div></td>
         <td style="padding:5px 8px;text-align:center;">${statusBadge(r.status)}</td>
         <td style="padding:5px 8px;text-align:center;font-size:11px;">${r.billingDate||'—'}</td>
         <td style="padding:5px 8px;text-align:center;">
