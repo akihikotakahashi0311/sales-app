@@ -7178,7 +7178,23 @@ function renderAlerts() {
 
 
 function updateAlertBadge() {
-  const count = db.alerts.filter(a=>!a.dismissed).length;
+  // renderAlerts と同じフィルター条件でカウント（表示件数と一致させる）
+  const _badgeToday = new Date(); _badgeToday.setHours(0,0,0,0);
+  const _badge60Days = new Date(_badgeToday); _badge60Days.setDate(_badge60Days.getDate() + 60);
+  const count = db.alerts.filter(a => {
+    if(a.dismissed) return false;
+    // 60日超の将来アラートは除外（renderAlertsと同条件）
+    if(a.date) {
+      const d = new Date(a.date); d.setHours(0,0,0,0);
+      if(d > _badge60Days) return false;
+    }
+    // スコープフィルター: 担当者フィルター適用中は他担当者分を除外
+    if(a.oppId && typeof viewScope !== 'undefined' && viewScope === 'own' && typeof currentUser !== 'undefined' && currentUser) {
+      const opp = db.opportunities.find(o => o.id === a.oppId);
+      if(opp && opp.owner !== currentUser.name) return false;
+    }
+    return true;
+  }).length;
   const badge = document.getElementById('alert-badge');
   badge.textContent = count;
   badge.style.display = count > 0 ? '' : 'none';
@@ -7188,7 +7204,8 @@ function autoGenerateAlerts() {
   const today = new Date().toISOString().split('T')[0];
   // 自動生成アラート（AUTO-）は毎回リフレッシュ（対応済のものは保持）
   db.alerts = db.alerts.filter(a => !a.id.startsWith('AUTO-') || a.dismissed);
-  const existingIds = new Set(db.alerts.filter(a=>!a.dismissed).map(a=>a.id));
+  // dismissed 含む全IDを登録し、重複生成を防ぐ（AUTO- は上の filter で削除済のため dismissed のみ残る）
+  const existingIds = new Set(db.alerts.map(a=>a.id));
   const newAlerts   = [];
 
   // ──────────────────────────────────────────────
