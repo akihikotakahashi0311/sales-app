@@ -3241,7 +3241,7 @@ function getMonthly(oppId) {
   return db.monthly[currentMonth][oppId];
 }
 
-function isMonthLocked() { return !!db.monthlyLocked[currentMonth]; }
+function isMonthLocked(ym) { return !!db.monthlyLocked[ym || currentMonth]; }
 
 function monthLabel(key) {
   const [y, m] = key.split('-');
@@ -5221,51 +5221,106 @@ function autoSetBillingAmount(oppId, billingDate, amount, force=false) {
   }
 }
 
-// マイルストーン/一括の場合: billingDate の月に請求額を設定
-// 月次の場合: 契約期間の各月末に請求額を設定（月額按分ロジックを使用）
+// 売上回収時期（billingType）に応じて月次の請求額・請求予定日を設定する
+//
+// ■ lump（一括請求）
+//     → opp.billingDate の月に契約総額（opp.amount）をそのまま設定
+//
+// ■ monthly（月次請求）
+//     → db.monthly[ym][oppId].sales の値を請求額として各月に反映
+//        （月次売上スケジュールが未入力の月はスキップ）
+//        請求予定日は各月の月末日
+//
+// ■ milestone（マイルストーン請求）
+//     → monthly と同様に db.monthly[ym][oppId].sales から反映
+//        （スケジュールに売上が立っている月のみ請求額を設定）
+//
+// force=true: ロック済み月を除き既存の手動入力値も上書き（案件編集モーダル保存時）
 function autoSetBillingFromOpp(opp, force=false) {
   if(!opp.billingType || !opp.amount) return;
 
-  if(opp.billingType === 'lump' || opp.billingType === 'milestone') {
-    // 一括/マイルストーン: 請求予定日の月に請求額を設定
+  // ── lump（一括請求）──────────────────────────────
+  if(opp.billingType === 'lump') {
     if(opp.billingDate) {
       autoSetBillingAmount(opp.id, opp.billingDate, opp.amount, force);
     }
-    // マイルストーン: 次回請求予定日も設定
-    if(opp.billingType === 'milestone' && opp.nextBillingDate) {
-      autoSetBillingAmount(opp.id, opp.nextBillingDate, opp.amount, force);
-    }
-  } else if(opp.billingType === 'monthly') {
-    // 月次: 契約期間の各月末に月額を請求額として設定
-    if(!opp.start || !opp.end) return;
-    const startYm = opp.start.slice(0, 7);
-    const endYm   = opp.end.slice(0, 7);
-    // 月次按分金額を計算
-    const months = monthsBetween(startYm, endYm) + 1;
-    if(months <= 0) return;
-    const monthlyAmt = Math.round((opp.amount / months) * 10000) / 10000;
-    // 各月の月末日を請求日として設定
-    let ym = startYm;
+    return;
+  }
+
+  // ── monthly / milestone（月次売上スケジュールから反映）──
+  if(opp.billingType === 'monthly' || opp.billingType === 'milestone') {
+    // db.monthly から売上が入っている全月を走査
+    const oppId = opp.id;
     let firstBillingDate = '';
-    while(ym <= endYm) {
-      const [y, m] = ym.split('-').map(Number);
-      const lastDay = new Date(y, m, 0);
-      const billingDate = lastDay.toISOString().split('T')[0];
-      autoSetBillingAmount(opp.id, billingDate, monthlyAmt, force);
-      if(!firstBillingDate) firstBillingDate = billingDate;
-      // 次月へ
-      ym = m === 12 ? `${y+1}-01` : `${y}-${String(m+1).padStart(2,'0')}`;
+
+    // 処理対象月の収集（monthly: start〜end 全月 / milestone: salesが入っている月）
+    let targetYms = [];
+    if(opp.billingType === 'monthly' && opp.start && opp.end) {
+      // 月次: 契約期間の全月
+      let ym = opp.start.slice(0, 7);
+      const endYm = opp.end.slice(0, 7);
+      while(ym <= endYm) {
+        targetYms.push(ym);
+        const [y, m] = ym.split('-').map(Number);
+        ym = m === 12 ? `${y+1}-01` : `${y}-${String(m+1).padStart(2,'0')}`;
+      }
+    } else {
+      // milestone / monthly（契約期間未設定）: salesが入っている月のみ
+      targetYms = Object.keys(db.monthly || {}).sort().filter(ym => {
+        const md = db.monthly[ym]?.[oppId];
+        return md && (md.sales || 0) > 0;
+      });
     }
-    // 案件の billingDate（初回請求日）と paymentDue（初回入金予定日）を設定
-    const oppIdx = db.opportunities.findIndex(o => o.id === opp.id);
-    if(oppIdx >= 0) {
-      if(!db.opportunities[oppIdx].billingDate && firstBillingDate) {
+
+    targetYms.forEach(ym => {
+      // ロック済み月はスキップ（force でも不変）
+      if(isMonthLocked(ym)) return;
+
+      // 月次データを初期化
+      if(!db.monthly[ym]) db.monthly[ym] = {};
+      if(!db.monthly[ym][oppId]) {
+        db.monthly[ym][oppId] = {sales:0, billing:0, cash:0, progress:0, cumProgress:0, locked:false};
+      }
+      const m = db.monthly[ym][oppId];
+      if(m.locked) return;
+
+      // 月次売上スケジュールの sales を請求額として設定
+      const salesAmt = m.sales || 0;
+      // sales が 0 の月は請求額を設定しない（monthly は全月走査するが未入力月はスキップ）
+      if(salesAmt <= 0 && !force) return;
+
+      // 各月の月末日を請求予定日として算出
+      const [y, mo] = ym.split('-').map(Number);
+      const lastDay = new Date(y, mo, 0);
+      const billingDate = lastDay.toISOString().split('T')[0];
+
+      // 請求額
+      if(force || !(m.billing > 0)) {
+        m.billing = salesAmt > 0 ? salesAmt : 0;
+      }
+      // 請求予定日
+      if(force || !m.billingDate) {
+        m.billingDate = billingDate;
+      }
+      // 入金予定日
+      if(force || !m.paymentDate) {
+        m.paymentDate = nextMonthEndBizDay(billingDate);
+      }
+
+      if(!firstBillingDate && billingDate) firstBillingDate = billingDate;
+    });
+
+    // 案件本体の billingDate（初回）・paymentDue を未設定なら補完
+    const oppIdx = db.opportunities.findIndex(o => o.id === oppId);
+    if(oppIdx >= 0 && firstBillingDate) {
+      if(!db.opportunities[oppIdx].billingDate) {
         db.opportunities[oppIdx].billingDate = firstBillingDate;
       }
-      if(!db.opportunities[oppIdx].paymentDue && firstBillingDate) {
+      if(!db.opportunities[oppIdx].paymentDue) {
         db.opportunities[oppIdx].paymentDue = nextMonthEndBizDay(firstBillingDate);
       }
     }
+    return;
   }
 }
 
