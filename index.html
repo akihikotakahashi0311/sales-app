@@ -5837,12 +5837,33 @@ function renderDashboard() {
   });
 
   // 担当者別売上（期間内）
+  // owner 名前を db.users で正規化（姓のみ→フルネーム等の表記ゆれを統一）
+  // email が同じユーザーは先頭のユーザーに統一（重複ユーザー対応）
+  const _uniqueUsers = [];
+  const _seenEmails = new Set();
+  db.users.filter(u=>u.active!==false).forEach(u => {
+    if(!_seenEmails.has(u.email)) { _seenEmails.add(u.email); _uniqueUsers.push(u); }
+  });
+  // 同一メールの別名マップ（例: ギブラン → Gibran）
+  const _emailToName = {};
+  db.users.forEach(u => { if(!_emailToName[u.email]) _emailToName[u.email] = u.name; });
+  const _normalizeOwner = (name) => {
+    if(!name) return '未設定';
+    // 完全一致
+    const exact = db.users.find(u => u.name === name);
+    if(exact) return _emailToName[exact.email] || exact.name;
+    // 部分一致（姓のみ or 名のみ）
+    const partial = db.users.find(u => u.name.includes(name) || name.includes(u.name));
+    if(partial) return _emailToName[partial.email] || partial.name;
+    return name; // マッチしなければそのまま
+  };
   const ownerSales = {};
   monthRange.forEach(mk => {
     const md = db.monthly[mk] || {};
     opps.forEach(o => {
       const m = md[o.id] || {};
-      ownerSales[o.owner || '不明'] = (ownerSales[o.owner || '不明'] || 0) + (m.sales || 0);
+      const ownerKey = _normalizeOwner(o.owner);
+      ownerSales[ownerKey] = (ownerSales[ownerKey] || 0) + (m.sales || 0);
     });
   });
   const ownerEntries = Object.entries(ownerSales).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
