@@ -7175,7 +7175,9 @@ function autoGenerateAlerts() {
   // A. 月次データ：売上計上済未請求 / 請求済未入金
   //    期日 = 該当月（YM）の月末日を基準とする
   // ──────────────────────────────────────────────
-  const allMonths = Object.keys(db.monthly||{}).sort().slice(-12);
+  // 当月以前の月のみ対象（未来月の売上計上済・未請求は除外）
+  const _curYm = today.slice(0, 7); // 'YYYY-MM'
+  const allMonths = Object.keys(db.monthly||{}).sort().filter(ym => ym <= _curYm).slice(-12);
   allMonths.forEach(ym => {
     const monthData = db.monthly[ym] || {};
     // YMの月末日を算出（例: 2024-03 → 2024-03-31）
