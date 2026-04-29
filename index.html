@@ -1648,11 +1648,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                 </select>
               </label>
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
-                入金サイト
-                <select class="form-control" id="cf-payment-site" style="width:130px;height:32px;font-size:12px;" onchange="renderCashflow()">
-                  <option value="1">翌月末</option>
-                  <option value="2">翌々月末</option>
-                  <option value="0">当月末</option>
+                表示対象
+                <select class="form-control" id="cf-status-filter" style="width:140px;height:32px;font-size:12px;" onchange="renderCashflow()">
+                  <option value="">受注済のみ</option>
+                  <option value="pipeline">パイプライン含む（加重）</option>
                 </select>
               </label>
               <button class="btn btn-sm" onclick="exportCashflowCSV()">
@@ -1661,8 +1660,11 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
               </button>
             </div>
           </div>
+          <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
+            入金予測ルール：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に請求予定額が入金されるものとして算出
+          </div>
           <div class="card-body" style="padding:16px 18px;">
-            <div class="chart-wrap" style="height:320px;"><canvas id="cf-chart"></canvas></div>
+            <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
           </div>
         </div>
 
@@ -1671,12 +1673,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <div class="card-header">
             <span class="card-title">月別キャッシュフロー内訳</span>
             <div style="display:flex;gap:8px;align-items:center;">
-              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflowTable()">
-              <select class="form-control" id="cf-status-filter" style="width:110px;height:32px;font-size:12px;" onchange="renderCashflowTable()">
-                <option value="">全案件</option>
-                <option value="won">受注済のみ</option>
-                <option value="pipeline">パイプライン含む</option>
-              </select>
+              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflow()">
             </div>
           </div>
           <div style="overflow-x:auto;">
@@ -1704,8 +1701,9 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                   <th style="padding:8px;text-align:right;">請求済</th>
                   <th style="padding:8px;text-align:right;">入金済</th>
                   <th style="padding:8px;text-align:right;">未回収</th>
-                  <th style="padding:8px;text-align:center;">次回請求予定</th>
-                  <th style="padding:8px;text-align:center;">次回入金予定</th>
+                  <th style="padding:8px;text-align:center;">次回請求予定月</th>
+                  <th style="padding:8px;text-align:center;">入金予定月</th>
+                  <th style="padding:8px;text-align:right;">入金予定額</th>
                   <th style="padding:8px;text-align:center;">ステータス</th>
                 </tr>
               </thead>
@@ -8994,122 +8992,262 @@ function markAsPaid(oppId, ym) {
 // ============================================================
 // キャッシュフロー予測
 // ============================================================
+// ルール: 請求予定日の翌月最終営業日に請求予定額が入金されるものとする
+// ============================================================
 let cfChart = null;
+
+// ── 請求予定日 → 入金予定月キー(YYYY-MM)を算出 ──
+// billingDateStr: 'YYYY-MM-DD' 形式の請求予定日
+// 戻り値: 翌月のYYYY-MMキー
+function billingDateToPaymentYm(billingDateStr) {
+  if(!billingDateStr) return '';
+  const d = new Date(billingDateStr);
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-indexed
+  // 翌月
+  const pm = m + 1;
+  if(pm > 11) return (y + 1) + '-01';
+  return y + '-' + String(pm + 1).padStart(2, '0');
+}
+
+// ── 月キー → その月の最終営業日(YYYY-MM-DD) ──
+function lastBizDayOfMonth(ymKey) {
+  const [y, m] = ymKey.split('-').map(Number);
+  const lastDay = new Date(y, m, 0); // m月の末日
+  const dow = lastDay.getDay();
+  if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
+  else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+  return lastDay.toISOString().split('T')[0];
+}
+
+// ── 案件ごとに全月の請求予定と入金予定を構築 ──
+function buildOppBillingForecast(opp, forecastEndYm) {
+  const records = []; // [{billingYm, billingDate, billingAmt, paymentYm, paymentDate, source}]
+  const oppId = opp.id;
+
+  // (1) 既に db.monthly に請求データがある月（実績＋手入力済み）
+  const existingBillingYms = new Set();
+  Object.keys(db.monthly).sort().forEach(ym => {
+    const m = db.monthly[ym]?.[oppId];
+    if(!m) return;
+    const bAmt = m.billing || 0;
+    if(bAmt <= 0) return;
+    existingBillingYms.add(ym);
+
+    // 請求日: m.billingDate → 月末フォールバック
+    const billingDate = m.billingDate || lastBizDayOfMonth(ym);
+    // 入金予定月: 請求日の翌月
+    const paymentYm = billingDateToPaymentYm(billingDate);
+    // 入金予定日: 翌月最終営業日
+    const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+    // 入金実績
+    const cashAmt = m.cash || 0;
+
+    records.push({
+      billingYm: ym,
+      billingDate,
+      billingAmt: bAmt,
+      paymentYm,
+      paymentDate,
+      cashAmt,
+      source: 'actual',
+    });
+  });
+
+  // (2) 将来月の請求予測（まだ db.monthly にないもの）
+  if(opp.recog === '月額按分' && opp.start && opp.end) {
+    // 月額按分: 契約期間の各月に均等請求
+    const startYm = opp.start.slice(0, 7);
+    const endYm   = opp.end.slice(0, 7);
+    const totalMonths = monthsBetween(startYm, endYm) + 1;
+    if(totalMonths > 0) {
+      const monthlyAmt = Math.round((opp.amount / totalMonths) * 10000) / 10000;
+      let ym = startYm;
+      for(let i = 0; i < totalMonths && ym <= forecastEndYm; i++) {
+        if(!existingBillingYms.has(ym) && ym > currentMonth) {
+          const billingDate = lastBizDayOfMonth(ym);
+          const paymentYm = billingDateToPaymentYm(billingDate);
+          const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+          records.push({
+            billingYm: ym,
+            billingDate,
+            billingAmt: monthlyAmt,
+            paymentYm,
+            paymentDate,
+            cashAmt: 0,
+            source: 'forecast',
+          });
+        }
+        ym = nextMonthKey(ym);
+      }
+    }
+  } else if(opp.recog === '進行基準') {
+    // 進行基準: db.monthly のスケジュール(sales)から未請求月を予測
+    const allYms = Object.keys(db.monthly).sort();
+    allYms.forEach(ym => {
+      if(ym <= currentMonth) return;
+      if(ym > forecastEndYm) return;
+      if(existingBillingYms.has(ym)) return;
+      const m = db.monthly[ym]?.[oppId];
+      if(!m || (m.sales || 0) <= 0) return;
+      const salesAmt = m.sales;
+      const billingDate = lastBizDayOfMonth(ym);
+      const paymentYm = billingDateToPaymentYm(billingDate);
+      const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+      records.push({
+        billingYm: ym,
+        billingDate,
+        billingAmt: salesAmt,
+        paymentYm,
+        paymentDate,
+        cashAmt: 0,
+        source: 'forecast',
+      });
+    });
+  } else if(opp.recog === '一括計上' || opp.recog === '検収基準') {
+    // 一括/検収: まだ一度も請求がなければ、billingDate月に全額請求を予測
+    if(existingBillingYms.size === 0 && opp.amount > 0) {
+      const bDateStr = opp.billingDate || opp.start || '';
+      if(bDateStr) {
+        const billingYm = bDateStr.slice(0, 7);
+        if(billingYm > currentMonth && billingYm <= forecastEndYm) {
+          const billingDate = opp.billingDate || lastBizDayOfMonth(billingYm);
+          const paymentYm = billingDateToPaymentYm(billingDate);
+          const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+          records.push({
+            billingYm,
+            billingDate,
+            billingAmt: opp.amount,
+            paymentYm,
+            paymentDate,
+            cashAmt: 0,
+            source: 'forecast',
+          });
+        }
+      }
+    }
+  }
+
+  return records;
+}
 
 function buildCashflowData() {
   const rangeMonths = parseInt(document.getElementById('cf-range')?.value || '12');
-  const paymentSiteOffset = parseInt(document.getElementById('cf-payment-site')?.value || '1');
   const statusFilter = document.getElementById('cf-status-filter')?.value || '';
 
-  // 表示対象月リスト: 過去3ヶ月 + 当月 + 未来N月
+  // 表示対象月リスト: 過去3ヶ月 ～ 当月 ～ 未来N月
   const months = [];
   for(let i = -3; i <= rangeMonths; i++) {
     months.push(addMonthKey(currentMonth, i));
   }
+  const forecastEndYm = months[months.length - 1];
 
-  // 対象案件フィルタ
+  // 対象案件
   const opps = db.opportunities.filter(o => {
     if(!matchesScope(o)) return false;
-    if(statusFilter === 'won') return o.stage === '受注';
     if(statusFilter === 'pipeline') return !['失注'].includes(o.stage);
-    return o.stage === '受注'; // デフォルトは受注済みのみ
+    return o.stage === '受注';
   });
 
-  // 月ごとの集計
-  const monthlyTotals = months.map(ym => {
-    let sales = 0, billing = 0, cash = 0, forecastCash = 0;
-    const isPast = ym <= currentMonth;
-    
-    opps.forEach(o => {
-      const mData = (db.monthly[ym] || {})[o.id] || {};
-      const s = mData.sales || 0;
-      const b = mData.billing || 0;
-      const c = mData.cash || 0;
-      sales += s;
-      billing += b;
-      cash += c;
+  // パイプラインの場合、確度で加重する
+  const useProbWeight = statusFilter === 'pipeline';
 
-      // 未来月の入金予測: 請求があるがまだ入金のない月 → paymentSiteOffset後の月に入金予測
-      if(ym > currentMonth) {
-        // 請求予測: monthlyスケジュールに請求がある場合はそれを使う
-        if(b > 0 && c === 0) {
-          // 請求はあるが入金がまだ → この月の入金予測として加算
-          forecastCash += b;
+  // 月別集計用マップ
+  const monthMap = {};
+  months.forEach(ym => {
+    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 };
+  });
+
+  // 案件別の予測レコードも保持
+  const oppForecasts = [];
+
+  opps.forEach(o => {
+    const weight = useProbWeight ? ((o.prob || 0) / 100) : 1;
+    const records = buildOppBillingForecast(o, forecastEndYm);
+    oppForecasts.push({ opp: o, records, weight });
+
+    records.forEach(r => {
+      // 請求月に請求額を計上
+      if(monthMap[r.billingYm]) {
+        monthMap[r.billingYm].billing += r.billingAmt * weight;
+      }
+      // 入金月に入金を計上
+      if(r.paymentYm && monthMap[r.paymentYm]) {
+        if(r.cashAmt > 0) {
+          // 入金実績あり
+          monthMap[r.paymentYm].cashActual += r.cashAmt * weight;
+        } else if(r.source === 'actual' && r.billingYm <= currentMonth) {
+          // 過去～当月の請求で未入金 → 入金予測
+          monthMap[r.paymentYm].cashForecast += r.billingAmt * weight;
+        } else if(r.source === 'forecast') {
+          // 将来請求 → 入金予測
+          monthMap[r.paymentYm].cashForecast += r.billingAmt * weight;
+        } else if(r.source === 'actual' && r.billingYm > currentMonth) {
+          // 未来月にスケジュール済みだが未入金
+          monthMap[r.paymentYm].cashForecast += r.billingAmt * weight;
         }
       }
     });
 
-    // 未来月で入金実績がなく請求予測がある場合の入金予測を別途計算
-    let projectedCash = 0;
-    if(ym > currentMonth) {
-      // paymentSiteOffset月前の請求データから入金を予測
-      const billingMonth = addMonthKey(ym, -paymentSiteOffset);
-      opps.forEach(o => {
-        const bData = (db.monthly[billingMonth] || {})[o.id] || {};
-        const bAmt = bData.billing || 0;
-        const cAmt = bData.cash || 0;
-        if(bAmt > 0 && cAmt === 0) {
-          projectedCash += bAmt;
-        }
-      });
-      // さらに、billingMonth以降に新たに発生する請求の予測
-      // 月額按分案件の未来月請求を予測
-      opps.forEach(o => {
-        if(!o.start || !o.end) return;
-        const startYm = o.start.slice(0, 7);
-        const endYm = o.end.slice(0, 7);
-        const bMonth = addMonthKey(ym, -paymentSiteOffset);
-        if(bMonth >= startYm && bMonth <= endYm) {
-          const existing = (db.monthly[bMonth] || {})[o.id];
-          if(!existing || (!existing.billing && !existing.sales)) {
-            // まだ請求データがない月 → 按分予測
-            if(o.recog === '月額按分' && o.start && o.end) {
-              const ms = monthsBetween(o.start.slice(0,7), o.end.slice(0,7));
-              if(ms > 0) projectedCash += o.amount / ms;
-            }
-          }
-        }
-      });
+    // 売上は既存 db.monthly から
+    months.forEach(ym => {
+      const m = (db.monthly[ym] || {})[o.id];
+      if(m && m.sales) {
+        monthMap[ym].sales += (m.sales || 0) * weight;
+      }
+    });
+  });
+
+  // monthlyTotals 配列
+  let cumCash = 0;
+  const monthlyTotals = months.map(ym => {
+    const d = monthMap[ym];
+    const isPast = ym < currentMonth;
+    const isCurrent = ym === currentMonth;
+
+    // 過去月: 入金実績のみ使用。当月: 実績＋予測。未来月: 予測のみ
+    let cashActual = 0, cashForecast = 0;
+    if(isPast) {
+      // 過去月: 実績があればそれ、なければ予測を未回収として扱う
+      cashActual = d.cashActual;
+      // 過去月で予測入金があるが実績がない → 遅延扱い、表示はしない
+    } else if(isCurrent) {
+      cashActual = d.cashActual;
+      cashForecast = d.cashForecast;
+    } else {
+      cashForecast = d.cashForecast;
     }
+
+    cumCash += cashActual + cashForecast;
 
     return {
       ym,
       label: monthLabel(ym),
       shortLabel: ym.split('-')[1] + '月',
-      sales,
-      billing,
-      cash: isPast ? cash : 0,
-      forecastCash: isPast ? 0 : (projectedCash || forecastCash || cash),
+      sales: Math.round(d.sales * 100) / 100,
+      billing: Math.round(d.billing * 100) / 100,
+      cashActual: Math.round(cashActual * 100) / 100,
+      cashForecast: Math.round(cashForecast * 100) / 100,
+      cumCash: Math.round(cumCash * 100) / 100,
       isPast,
-      isCurrent: ym === currentMonth,
+      isCurrent,
     };
   });
 
-  // 累積キャッシュ残高計算
-  let cumCash = 0;
-  monthlyTotals.forEach(m => {
-    cumCash += (m.cash || 0) + (m.forecastCash || 0);
-    m.cumCash = cumCash;
-  });
-
-  return { months, monthlyTotals, opps };
-}
-
-function monthsBetween(startYm, endYm) {
-  const [sy, sm] = startYm.split('-').map(Number);
-  const [ey, em] = endYm.split('-').map(Number);
-  return (ey - sy) * 12 + (em - sm) + 1;
+  return { months, monthlyTotals, opps, oppForecasts, forecastEndYm };
 }
 
 function renderCashflow() {
-  const { months, monthlyTotals, opps } = buildCashflowData();
+  const data = buildCashflowData();
+  const { months, monthlyTotals, opps, oppForecasts } = data;
 
   // === メトリクスカード ===
   const thisMonth = monthlyTotals.find(m => m.isCurrent) || {};
   const nextMonth = monthlyTotals.find(m => m.ym === addMonthKey(currentMonth, 1)) || {};
-  const totalForecast = monthlyTotals.filter(m => !m.isPast && !m.isCurrent).reduce((s, m) => s + m.forecastCash, 0);
-  
-  // 未回収残高: 全月の(billing - cash)合計
+  const futureMonths = monthlyTotals.filter(m => !m.isPast && !m.isCurrent);
+  const totalForecastCash = futureMonths.reduce((s, m) => s + m.cashForecast, 0);
+
+  // 未回収残高: 全案件で (請求済 - 入金済) の合計
   let totalUncollected = 0;
   opps.forEach(o => {
     Object.keys(db.monthly).forEach(ym => {
@@ -9118,47 +9256,47 @@ function renderCashflow() {
     });
   });
 
-  // 入金遅延リスク件数: 請求済だが入金がない過去月分
+  // 入金遅延リスク: 過去月で請求済・未入金（入金予定月を過ぎている）
   let riskCount = 0;
-  opps.forEach(o => {
-    Object.keys(db.monthly).forEach(ym => {
-      if(ym >= currentMonth) return;
-      const m = db.monthly[ym][o.id];
-      if(m && m.billing > 0 && (m.cash || 0) < m.billing) riskCount++;
+  oppForecasts.forEach(({ records }) => {
+    records.forEach(r => {
+      if(r.source === 'actual' && r.billingAmt > 0 && r.cashAmt < r.billingAmt) {
+        if(r.paymentYm && r.paymentYm < currentMonth) riskCount++;
+      }
     });
   });
 
   document.getElementById('cf-metrics').innerHTML = `
     <div class="metric-card blue">
-      <div class="metric-label">当月 入金実績/予測</div>
-      <div class="metric-value">${fmt(thisMonth.cash + thisMonth.forecastCash)}</div>
-      <div class="metric-change neutral">請求額 ${fmt(thisMonth.billing)}</div>
+      <div class="metric-label">当月 入金（実績＋予測）</div>
+      <div class="metric-value">${fmt(thisMonth.cashActual + thisMonth.cashForecast)}</div>
+      <div class="metric-change neutral">実績 ${fmt(thisMonth.cashActual)} ／ 予測 ${fmt(thisMonth.cashForecast)}</div>
     </div>
     <div class="metric-card green">
       <div class="metric-label">翌月 入金予測</div>
-      <div class="metric-value">${fmt(nextMonth.forecastCash)}</div>
-      <div class="metric-change neutral">請求予測 ${fmt(nextMonth.billing)}</div>
+      <div class="metric-value">${fmt(nextMonth.cashForecast)}</div>
+      <div class="metric-change neutral">当月の請求予定 → 翌月末入金</div>
     </div>
     <div class="metric-card amber">
       <div class="metric-label">未回収残高</div>
       <div class="metric-value">${fmt(totalUncollected)}</div>
-      <div class="metric-change neutral">将来入金予測計 ${fmt(totalForecast)}</div>
+      <div class="metric-change neutral">将来入金予測計 ${fmt(totalForecastCash)}</div>
     </div>
     <div class="metric-card red">
       <div class="metric-label">入金遅延リスク</div>
       <div class="metric-value">${riskCount}件</div>
-      <div class="metric-change neutral">過去月 請求済未入金</div>
+      <div class="metric-change neutral">入金予定月を超過</div>
     </div>
   `;
 
   // === チャート ===
   renderCashflowChart(monthlyTotals);
 
-  // === テーブル ===
-  renderCashflowTable();
+  // === 月別内訳テーブル ===
+  renderCashflowTable(monthlyTotals);
 
-  // === スケジュールテーブル ===
-  renderCashflowSchedule(opps);
+  // === 案件別スケジュール ===
+  renderCashflowSchedule(oppForecasts);
 }
 
 function renderCashflowChart(data) {
@@ -9169,6 +9307,9 @@ function renderCashflowChart(data) {
   const labels = data.map(d => d.shortLabel);
   const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
+  // 当月のインデックスを見つけてアノテーション用に
+  const currentIdx = data.findIndex(d => d.isCurrent);
+
   cfChart = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -9176,38 +9317,42 @@ function renderCashflowChart(data) {
       datasets: [
         {
           label: '売上計上',
-          data: data.map(d => Math.round(d.sales * 100) / 100),
-          backgroundColor: isDark ? 'rgba(56,138,221,0.5)' : 'rgba(24,95,165,0.45)',
+          data: data.map(d => d.sales),
+          backgroundColor: isDark ? 'rgba(56,138,221,0.45)' : 'rgba(24,95,165,0.35)',
           borderRadius: 3,
-          order: 3,
+          order: 4,
+          barPercentage: 0.7,
         },
         {
           label: '請求額',
-          data: data.map(d => Math.round(d.billing * 100) / 100),
-          backgroundColor: isDark ? 'rgba(29,158,117,0.5)' : 'rgba(29,158,117,0.4)',
+          data: data.map(d => d.billing),
+          backgroundColor: isDark ? 'rgba(29,158,117,0.45)' : 'rgba(29,158,117,0.35)',
           borderRadius: 3,
-          order: 2,
+          order: 3,
+          barPercentage: 0.7,
         },
         {
           label: '入金実績',
-          data: data.map(d => Math.round(d.cash * 100) / 100),
-          backgroundColor: isDark ? 'rgba(239,159,39,0.65)' : 'rgba(186,117,23,0.5)',
+          data: data.map(d => d.cashActual),
+          backgroundColor: isDark ? 'rgba(239,159,39,0.7)' : 'rgba(186,117,23,0.55)',
           borderRadius: 3,
-          order: 1,
+          order: 2,
+          barPercentage: 0.7,
         },
         {
           label: '入金予測',
-          data: data.map(d => Math.round(d.forecastCash * 100) / 100),
-          backgroundColor: isDark ? 'rgba(239,159,39,0.25)' : 'rgba(186,117,23,0.2)',
+          data: data.map(d => d.cashForecast),
+          backgroundColor: isDark ? 'rgba(239,159,39,0.25)' : 'rgba(186,117,23,0.18)',
           borderColor: isDark ? 'rgba(239,159,39,0.6)' : 'rgba(186,117,23,0.45)',
           borderWidth: 1,
           borderDash: [4, 2],
           borderRadius: 3,
           order: 1,
+          barPercentage: 0.7,
         },
         {
           label: '累積キャッシュ',
-          data: data.map(d => Math.round(d.cumCash * 100) / 100),
+          data: data.map(d => d.cumCash),
           type: 'line',
           borderColor: isDark ? '#E24B4A' : '#A32D2D',
           backgroundColor: 'transparent',
@@ -9236,8 +9381,15 @@ function renderCashflowChart(data) {
         },
         tooltip: {
           callbacks: {
+            title: function(items) {
+              const idx = items[0].dataIndex;
+              const d = data[idx];
+              return d.label + (d.isCurrent ? '（当月）' : d.isPast ? '（確定）' : '（予測）');
+            },
             label: function(ctx) {
-              return ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
+              const val = ctx.parsed.y;
+              if(!val && val !== 0) return '';
+              return ' ' + ctx.dataset.label + ': ' + fmt(val);
             }
           }
         }
@@ -9272,123 +9424,115 @@ function renderCashflowChart(data) {
   });
 }
 
-function renderCashflowTable() {
-  const { months, monthlyTotals } = buildCashflowData();
-  const q = (document.getElementById('cf-search')?.value || '').toLowerCase();
+function renderCashflowTable(monthlyTotals) {
+  if(!monthlyTotals) monthlyTotals = buildCashflowData().monthlyTotals;
 
   // ヘッダー
-  let thead = '<tr><th style="padding:8px;text-align:left;min-width:90px;position:sticky;left:0;background:var(--bg-secondary);z-index:1;">月</th>';
-  thead += '<th style="padding:8px;text-align:right;">売上計上</th>';
-  thead += '<th style="padding:8px;text-align:right;">請求額</th>';
-  thead += '<th style="padding:8px;text-align:right;">入金実績</th>';
-  thead += '<th style="padding:8px;text-align:right;">入金予測</th>';
-  thead += '<th style="padding:8px;text-align:right;">累積CF</th>';
-  thead += '<th style="padding:8px;text-align:center;">状態</th></tr>';
+  let thead = '<tr>';
+  thead += '<th style="padding:8px 10px;text-align:left;min-width:100px;position:sticky;left:0;background:var(--bg-secondary);z-index:1;">月</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">売上計上</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">請求額</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">入金実績</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">入金予測</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">入金計</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">累積CF</th>';
+  thead += '<th style="padding:8px 10px;text-align:center;">状態</th></tr>';
   document.getElementById('cf-thead').innerHTML = thead;
 
-  // ボディ
   let html = '';
   monthlyTotals.forEach(m => {
-    const isCurr = m.isCurrent;
-    const isFuture = !m.isPast && !isCurr;
-    const bgStyle = isCurr ? 'background:var(--accent-light);' : isFuture ? 'opacity:0.85;' : '';
+    const isFuture = !m.isPast && !m.isCurrent;
+    const cashTotal = m.cashActual + m.cashForecast;
+    const bgStyle = m.isCurrent ? 'background:var(--accent-light);' : '';
     const cfColor = m.cumCash < 0 ? 'color:var(--red);font-weight:600;' : '';
-    
+    const stickyBg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-primary)';
+
     let statusBadge = '';
-    if(isCurr) statusBadge = '<span class="badge badge-blue">当月</span>';
+    if(m.isCurrent) statusBadge = '<span class="badge badge-blue">当月</span>';
     else if(isFuture) statusBadge = '<span class="badge badge-gray">予測</span>';
     else statusBadge = '<span class="badge badge-green">確定</span>';
 
+    const dash = '<span style="color:var(--text-muted);">—</span>';
     html += `<tr style="${bgStyle}">`;
-    html += `<td style="padding:8px;font-weight:500;position:sticky;left:0;background:${isCurr ? 'var(--accent-light)' : 'var(--bg-primary)'};z-index:1;">${m.label}</td>`;
-    html += `<td style="padding:8px;text-align:right;">${m.sales ? fmt(m.sales) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
-    html += `<td style="padding:8px;text-align:right;">${m.billing ? fmt(m.billing) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
-    html += `<td style="padding:8px;text-align:right;">${m.cash ? fmt(m.cash) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
-    html += `<td style="padding:8px;text-align:right;${isFuture ? 'font-style:italic;color:var(--amber);' : ''}">${m.forecastCash ? fmt(m.forecastCash) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
-    html += `<td style="padding:8px;text-align:right;${cfColor}">${fmt(m.cumCash)}</td>`;
-    html += `<td style="padding:8px;text-align:center;">${statusBadge}</td>`;
+    html += `<td style="padding:8px 10px;font-weight:500;position:sticky;left:0;background:${stickyBg};z-index:1;">${m.label}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;">${m.sales ? fmt(m.sales) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;">${m.billing ? fmt(m.billing) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;">${m.cashActual ? fmt(m.cashActual) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;${isFuture||m.isCurrent ? 'font-style:italic;color:var(--amber);' : ''}">${m.cashForecast ? fmt(m.cashForecast) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;font-weight:500;">${cashTotal ? fmt(cashTotal) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;font-weight:600;${cfColor}">${fmt(m.cumCash)}</td>`;
+    html += `<td style="padding:8px 10px;text-align:center;">${statusBadge}</td>`;
     html += '</tr>';
   });
   document.getElementById('cf-tbody').innerHTML = html;
 
-  // フッター（合計）
+  // フッター
   const totals = monthlyTotals.reduce((acc, m) => {
-    acc.sales += m.sales; acc.billing += m.billing; acc.cash += m.cash; acc.forecast += m.forecastCash;
+    acc.sales += m.sales; acc.billing += m.billing;
+    acc.cashActual += m.cashActual; acc.cashForecast += m.cashForecast;
     return acc;
-  }, { sales: 0, billing: 0, cash: 0, forecast: 0 });
+  }, { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 });
 
   document.getElementById('cf-tfoot').innerHTML = `
     <tr>
-      <td style="padding:8px;font-weight:600;">合計</td>
-      <td style="padding:8px;text-align:right;font-weight:600;">${fmt(totals.sales)}</td>
-      <td style="padding:8px;text-align:right;font-weight:600;">${fmt(totals.billing)}</td>
-      <td style="padding:8px;text-align:right;font-weight:600;">${fmt(totals.cash)}</td>
-      <td style="padding:8px;text-align:right;font-weight:600;color:var(--amber);">${fmt(totals.forecast)}</td>
-      <td style="padding:8px;text-align:right;"></td>
-      <td style="padding:8px;"></td>
+      <td style="padding:8px 10px;font-weight:600;">合計</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.sales)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.billing)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--amber);">${fmt(totals.cashForecast)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual + totals.cashForecast)}</td>
+      <td style="padding:8px 10px;"></td>
+      <td style="padding:8px 10px;"></td>
     </tr>
   `;
 }
 
-function renderCashflowSchedule(opps) {
-  if(!opps) opps = buildCashflowData().opps;
-  const paymentSiteOffset = parseInt(document.getElementById('cf-payment-site')?.value || '1');
+function renderCashflowSchedule(oppForecasts) {
+  if(!oppForecasts) oppForecasts = buildCashflowData().oppForecasts;
   const tbody = document.getElementById('cf-schedule-tbody');
   if(!tbody) return;
+  const q = (document.getElementById('cf-search')?.value || '').toLowerCase();
 
-  // 案件別の請求済・入金済を集計
-  const rows = opps.map(o => {
+  const rows = oppForecasts.map(({ opp: o, records }) => {
+    // 集計
     let totalBilling = 0, totalCash = 0;
-    let lastBillingMonth = '', nextBillingMonth = '';
-    
-    Object.keys(db.monthly).sort().forEach(ym => {
-      const m = db.monthly[ym][o.id];
-      if(!m) return;
-      totalBilling += m.billing || 0;
-      totalCash += m.cash || 0;
-      if(m.billing > 0) lastBillingMonth = ym;
-    });
-
-    // 次回請求予定月の推定
-    if(o.recog === '月額按分' && o.end) {
-      const endYm = o.end.slice(0, 7);
-      if(lastBillingMonth) {
-        const next = nextMonthKey(lastBillingMonth);
-        if(next <= endYm) nextBillingMonth = next;
-      } else if(o.start) {
-        nextBillingMonth = o.start.slice(0, 7);
-      }
-    } else if(o.recog === '進行基準') {
-      if(lastBillingMonth) {
-        const next = nextMonthKey(lastBillingMonth);
-        if(totalBilling < o.amount) nextBillingMonth = next;
-      }
-    } else {
-      // 一括計上等: 未請求なら当月
-      if(totalBilling === 0) nextBillingMonth = currentMonth;
-    }
-
-    // 次回入金予定月
-    const nextPaymentMonth = nextBillingMonth ? addMonthKey(nextBillingMonth, paymentSiteOffset) : '';
+    records.forEach(r => { totalBilling += r.billingAmt; totalCash += r.cashAmt; });
     const uncollected = totalBilling - totalCash;
+
+    // 次回の未入金レコードを探す（billingYm > 直近入金済 or 最初の未入金）
+    const futureRecords = records
+      .filter(r => r.cashAmt < r.billingAmt)
+      .sort((a, b) => a.billingYm.localeCompare(b.billingYm));
+    const nextRecord = futureRecords[0] || null;
+    const nextBillingYm  = nextRecord?.billingYm || '';
+    const nextPaymentYm  = nextRecord?.paymentYm || '';
+    const nextPaymentAmt = nextRecord ? (nextRecord.billingAmt - nextRecord.cashAmt) : 0;
 
     // ステータス
     let status = 'normal';
-    if(uncollected > 0 && lastBillingMonth && lastBillingMonth < currentMonth) status = 'overdue';
-    else if(totalBilling === 0) status = 'unbilled';
-    else if(uncollected <= 0) status = 'complete';
+    if(nextRecord && nextRecord.paymentYm && nextRecord.paymentYm < currentMonth && nextRecord.cashAmt < nextRecord.billingAmt) {
+      status = 'overdue';
+    } else if(totalBilling === 0) {
+      status = 'unbilled';
+    } else if(uncollected <= 0) {
+      status = 'complete';
+    }
 
-    return { o, totalBilling, totalCash, uncollected, nextBillingMonth, nextPaymentMonth, status };
-  }).filter(r => r.o.amount > 0);
+    return { o, totalBilling, totalCash, uncollected, nextBillingYm, nextPaymentYm, nextPaymentAmt, status };
+  }).filter(r => {
+    if(r.o.amount <= 0) return false;
+    if(q && !r.o.name.toLowerCase().includes(q) && !(r.o.customer||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
 
-  // ステータス順ソート: overdue → unbilled → normal → complete
+  // ソート: overdue → unbilled → normal → complete
   const statusOrder = { overdue: 0, unbilled: 1, normal: 2, complete: 3 };
-  rows.sort((a, b) => (statusOrder[a.status] || 9) - (statusOrder[b.status] || 9) || b.uncollected - a.uncollected);
+  rows.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9) || b.uncollected - a.uncollected);
 
   const statusBadgeMap = {
-    overdue: '<span class="badge badge-red">入金遅延</span>',
+    overdue:  '<span class="badge badge-red">入金遅延</span>',
     unbilled: '<span class="badge badge-amber">未請求</span>',
-    normal: '<span class="badge badge-blue">進行中</span>',
+    normal:   '<span class="badge badge-blue">進行中</span>',
     complete: '<span class="badge badge-green">回収完了</span>',
   };
 
@@ -9401,23 +9545,25 @@ function renderCashflowSchedule(opps) {
       <td style="padding:8px;text-align:right;">${r.totalBilling ? fmt(r.totalBilling) : '—'}</td>
       <td style="padding:8px;text-align:right;">${r.totalCash ? fmt(r.totalCash) : '—'}</td>
       <td style="padding:8px;text-align:right;${r.uncollected > 0 ? 'color:var(--red);font-weight:600;' : ''}">${r.uncollected > 0 ? fmt(r.uncollected) : '—'}</td>
-      <td style="padding:8px;text-align:center;">${r.nextBillingMonth ? monthLabel(r.nextBillingMonth) : '—'}</td>
-      <td style="padding:8px;text-align:center;">${r.nextPaymentMonth ? monthLabel(r.nextPaymentMonth) : '—'}</td>
+      <td style="padding:8px;text-align:center;">${r.nextBillingYm ? monthLabel(r.nextBillingYm) : '—'}</td>
+      <td style="padding:8px;text-align:center;${r.status==='overdue' ? 'color:var(--red);font-weight:600;' : ''}">${r.nextPaymentYm ? monthLabel(r.nextPaymentYm) : '—'}</td>
+      <td style="padding:8px;text-align:right;font-style:italic;color:var(--amber);">${r.nextPaymentAmt > 0 ? fmt(r.nextPaymentAmt) : '—'}</td>
       <td style="padding:8px;text-align:center;">${statusBadgeMap[r.status] || ''}</td>
     </tr>
   `).join('');
 
   if(rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--text-muted);">表示可能な受注案件がありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--text-muted);">表示可能な受注案件がありません</td></tr>';
   }
 }
 
 function exportCashflowCSV() {
   const { monthlyTotals } = buildCashflowData();
-  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,累積CF（万円）,状態\n';
+  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,入金計（万円）,累積CF（万円）,状態\n';
   monthlyTotals.forEach(m => {
     const status = m.isCurrent ? '当月' : (m.isPast ? '確定' : '予測');
-    csv += `${m.label},${m.sales},${m.billing},${m.cash},${m.forecastCash},${m.cumCash},${status}\n`;
+    const cashTotal = m.cashActual + m.cashForecast;
+    csv += `${m.label},${m.sales},${m.billing},${m.cashActual},${m.cashForecast},${cashTotal},${m.cumCash},${status}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
