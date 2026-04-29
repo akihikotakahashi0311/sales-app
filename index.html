@@ -9298,13 +9298,15 @@ function buildCashflowData() {
   });
 
   // monthlyTotals 配列 ─ CF計算書構造(I〜VII)
-  let runningBalance = 0; // 期首残高をゼロスタート（実データなしのため累積で管理）
-  const monthlyTotals = months.map(ym => {
+  // 基準: 2026年1月の期首現金残高 = 151,402,430円 = 15140.243万円
+  const BASE_OPEN_YM = '2026-01';
+  const BASE_OPEN_BAL = 151402430 / 10000; // 万円
+
+  // まず各月のCF増減を先に計算
+  const monthCFs = months.map(ym => {
     const d = monthMap[ym];
     const isPast = ym < currentMonth;
     const isCurrent = ym === currentMonth;
-
-    // 過去月: 入金実績のみ使用。当月: 実績＋予測。未来月: 予測のみ
     let cashActual = 0, cashForecast = 0;
     if(isPast) {
       cashActual = d.cashActual;
@@ -9314,41 +9316,56 @@ function buildCashflowData() {
     } else {
       cashForecast = d.cashForecast;
     }
+    const opCashIn = cashActual + cashForecast;
+    const opCashOut = d.costOut;
+    const opNetCF = opCashIn - opCashOut;
+    const investFinCF = -d.interest;
+    const netChange = opNetCF + investFinCF;
+    return { ym, opCashIn, opCashOut, opNetCF, investFinCF, netChange, cashActual, cashForecast, isPast, isCurrent, d };
+  });
 
+  // 基準月のインデックスを見つけて期首残高を逆算・順算
+  const baseIdx = monthCFs.findIndex(m => m.ym === BASE_OPEN_YM);
+  const openBals = new Array(monthCFs.length).fill(0);
+  if(baseIdx >= 0) {
+    openBals[baseIdx] = BASE_OPEN_BAL;
+    // 基準月より前を逆算（期首残 = 翌月期首残 - 当月netChange）
+    for(let i = baseIdx - 1; i >= 0; i--) {
+      openBals[i] = openBals[i + 1] - monthCFs[i].netChange;
+    }
+    // 基準月以降を順算（翌月期首残 = 当月期首残 + 当月netChange）
+    for(let i = baseIdx; i < monthCFs.length - 1; i++) {
+      openBals[i + 1] = openBals[i] + monthCFs[i].netChange;
+    }
+  }
+
+  const monthlyTotals = monthCFs.map((mc, idx) => {
     const r = v => Math.round(v * 100) / 100;
-    // I. 期首現金残高
-    const openBal = r(runningBalance);
-    // II. 営業活動CF（入金）
-    const opCashIn = r(cashActual + cashForecast);
-    // III. 営業活動CF（出金）  ※減価償却費は非資金のため除外済
-    const opCashOut = r(d.costOut);
-    // IV. 営業CF差引額 = II - III
-    const opNetCF = r(opCashIn - opCashOut);
-    // V. 投資・財務CF（支払利息のみ識別可能、設備投資・借入データなし→0扱い）
-    const investFinCF = r(-d.interest);
-    // VI. 当月純増減額 = IV + V
-    const netChange = r(opNetCF + investFinCF);
-    // VII. 期末現金残高 = I + VI
-    runningBalance = r(openBal + netChange);
-    const closeBal = runningBalance;
+    const openBal = r(openBals[idx]);
+    const netChange = r(mc.netChange);
+    const closeBal = r(openBal + netChange);
 
     return {
-      ym,
-      label: monthLabel(ym),
-      shortLabel: ym.split('-')[1] + '月',
-      // 従来互換
-      sales: r(d.sales), billing: r(d.billing),
-      cashActual: r(cashActual), cashForecast: r(cashForecast),
-      // CF計算書 I〜VII
-      openBal, opCashIn, opCashOut, opNetCF, investFinCF, netChange, closeBal,
-      // 内訳
-      costSource: d.costSource,
-      costBreakdown: d.costBreakdown,
-      interest: r(d.interest),
-      depreciation: r(d.depreciation),
-      isPast, isCurrent,
+      ym: mc.ym,
+      label: monthLabel(mc.ym),
+      shortLabel: mc.ym.split('-')[1] + '月',
+      sales: r(mc.d.sales), billing: r(mc.d.billing),
+      cashActual: r(mc.cashActual), cashForecast: r(mc.cashForecast),
+      openBal,
+      opCashIn: r(mc.opCashIn),
+      opCashOut: r(mc.opCashOut),
+      opNetCF: r(mc.opNetCF),
+      investFinCF: r(mc.investFinCF),
+      netChange,
+      closeBal,
+      costSource: mc.d.costSource,
+      costBreakdown: mc.d.costBreakdown,
+      interest: r(mc.d.interest),
+      depreciation: r(mc.d.depreciation),
+      isPast: mc.isPast,
+      isCurrent: mc.isCurrent,
       // 旧互換
-      costOut: opCashOut,
+      costOut: r(mc.opCashOut),
       netCash: netChange,
       cumCash: closeBal,
     };
