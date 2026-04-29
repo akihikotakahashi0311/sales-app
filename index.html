@@ -308,6 +308,17 @@ tfoot td {
 .progress-bar { height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; display: inline-block; width: 60px; vertical-align: middle; }
 .progress-fill { height: 100%; border-radius: 3px; }
 
+
+/* ===== INLINE STYLE SHORTCUTS ===== */
+.flex-center { display: flex; align-items: center; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.flex-gap-8 { gap: 8px; }
+.flex-gap-10 { gap: 10px; }
+.flex-gap-12 { gap: 12px; }
+.flex-wrap { flex-wrap: wrap; }
+.select-filter { height: 34px; font-size: 12px; }
+.select-filter-13 { height: 34px; font-size: 13px; }
+.mb-18 { margin-bottom: 18px; }
 /* ===== PAGES ===== */
 .page { display: none; }
 .page.active { display: block; }
@@ -1266,20 +1277,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             <button class="dash-period-btn" onclick="setDashMode('month',this)">月次</button>
           </div>
           <div id="ctrl-fy" style="display:flex;align-items:center;gap:8px;">
-            <select class="form-control" style="height:34px;width:160px;font-size:13px;" id="dash-fy-sel" onchange="dashFY=this.value;renderDashboard()">
-              <option value="fy24">FY2024（23/10〜24/09）</option>
-              <option value="fy25">FY2025（24/10〜25/09）</option>
-              <option value="fy26">FY2026（25/10〜26/09）</option>
-              <option value="fy27">FY2027（26/10〜27/09）</option>
-              <option value="fy28">FY2028（27/10〜28/09）</option>
-              <option value="fy29">FY2029（28/10〜29/09）</option>
-              <option value="fy30">FY2030（29/10〜30/09）</option>
-            </select>
+            <select class="form-control" style="height:34px;width:160px;font-size:13px;" id="dash-fy-sel" onchange="dashFY=this.value;renderDashboard()"></select>
           </div>
           <div id="ctrl-quarter" style="display:none;align-items:center;gap:8px;">
-            <select class="form-control" style="height:34px;width:100px;font-size:13px;" id="dash-fy-q-sel" onchange="dashFY=this.value;renderDashboard()">
-              <option value="fy24">FY24</option><option value="fy25">FY25</option><option value="fy26">FY26</option><option value="fy27">FY27</option><option value="fy28">FY28</option><option value="fy29">FY29</option><option value="fy30">FY30</option>
-            </select>
+            <select class="form-control" style="height:34px;width:100px;font-size:13px;" id="dash-fy-q-sel" onchange="dashFY=this.value;renderDashboard()"></select>
             <div style="display:flex;background:var(--bg-secondary);border-radius:var(--radius-md);padding:3px;gap:2px;">
               <button class="dash-q-btn active" onclick="setDashQ('Q1',this)">Q1</button>
               <button class="dash-q-btn" onclick="setDashQ('Q2',this)">Q2</button>
@@ -1741,15 +1742,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div id="rep-landing" style="display:none;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-            <select class="form-control" style="width:180px;height:34px;font-size:13px;" id="landing-fy" onchange="dashFY=this.value;renderLandingReport()">
-              <option value="fy24">FY2024（23/10〜24/09）</option>
-              <option value="fy25">FY2025（24/10〜25/09）</option>
-              <option value="fy26">FY2026（25/10〜26/09）</option>
-              <option value="fy27">FY2027（26/10〜27/09）</option>
-              <option value="fy28">FY2028（27/10〜28/09）</option>
-              <option value="fy29">FY2029（28/10〜29/09）</option>
-              <option value="fy30">FY2030（29/10〜30/09）</option>
-            </select>
+            <select class="form-control" style="width:180px;height:34px;font-size:13px;" id="landing-fy" onchange="dashFY=this.value;renderLandingReport()"></select>
             <select class="form-control" style="width:120px;height:34px;font-size:13px;" id="landing-stage-filter" onchange="renderLandingReport()">
               <option value="">全フェーズ</option>
               <option>受注</option><option>交渉中</option><option>提案中</option><option>リード</option>
@@ -2401,7 +2394,6 @@ const _storage = (() => {
 // ============================================================
 // OneDrive 連携（Microsoft Graph API + MSAL）
 // ============================================================
-// ★ 設定: Azure ADアプリ登録で取得した値を設定してください
 // ★ Azure ADアプリ登録で取得した値を設定してください
 const MSAL_CONFIG = {
   clientId: 'c98afa31-285b-4f61-a5b5-da96776e8b77',
@@ -2802,6 +2794,22 @@ const FY_RANGES = (() => {
   return ranges;
 })();
 const Q_OFFSET = {Q1:[0,1,2], Q2:[3,4,5], Q3:[6,7,8], Q4:[9,10,11]};
+// FYセレクト要素を動的に生成（HTML重複排除）
+function _populateFySelects() {
+  const fyKeys = Object.keys(FY_RANGES).sort();
+  const longOpts = fyKeys.map(k => {
+    const r = FY_RANGES[k];
+    return `<option value="${k}">${k.toUpperCase()}（${r.start}〜${r.end}）</option>`;
+  }).join('');
+  const shortOpts = fyKeys.map(k => `<option value="${k}">${k.toUpperCase()}</option>`).join('');
+  ['dash-fy-sel','landing-fy'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el && !el.children.length) { el.innerHTML = longOpts; el.value = dashFY; }
+  });
+  const qSel = document.getElementById('dash-fy-q-sel');
+  if(qSel && !qSel.children.length) { qSel.innerHTML = shortOpts; qSel.value = dashFY; }
+}
+
 
 function addMonths(ym, n) {
   let [y,m] = ym.split('-').map(Number);
@@ -2888,6 +2896,7 @@ function shiftDashMonth(delta) {
 }
 
 function initDashMonthSel() {
+  _populateFySelects();
   // dashMonth をデータ最新月に合わせる（currentMonthは今月のまま）
   const msrKeys = Object.keys(db.monthlySummary||{}).sort();
   // dashMonth もデータ最新月に同期
@@ -2921,42 +2930,52 @@ function initDashMonthSel() {
 let selectedOpps  = new Set();
 let selectedLeads = new Set();
 
-function onOppChk(el, id) {
-  const row = document.getElementById('opp-row-' + id);
-  if(el.checked){ selectedOpps.add(id); if(row) row.classList.add('selected'); }
-  else           { selectedOpps.delete(id); if(row) row.classList.remove('selected'); }
-  updateOppBulkBar();
-  const all = document.querySelectorAll('#opp-tbody input.row-chk');
-  const hd  = document.getElementById('opp-select-all');
-  if(hd){ hd.checked = all.length > 0 && [...all].every(c=>c.checked); hd.indeterminate = selectedOpps.size > 0 && selectedOpps.size < all.length; }
+// ============================================================
+// 汎用一括選択/削除
+// ============================================================
+function _createBulkOps(cfg) {
+  // cfg: { set, tbodyId, rowPrefix, barId, countId, selectAllId, onDelete }
+  return {
+    onChk(el, id) {
+      const row = document.getElementById(cfg.rowPrefix + id);
+      if(el.checked){ cfg.set.add(id); if(row) row.classList.add('selected'); }
+      else           { cfg.set.delete(id); if(row) row.classList.remove('selected'); }
+      this.updateBar();
+      const all = document.querySelectorAll('#'+cfg.tbodyId+' input.row-chk');
+      const hd  = document.getElementById(cfg.selectAllId);
+      if(hd){ hd.checked = all.length > 0 && [...all].every(c=>c.checked); hd.indeterminate = cfg.set.size > 0 && cfg.set.size < all.length; }
+    },
+    toggleAll(el) {
+      document.querySelectorAll('#'+cfg.tbodyId+' input.row-chk').forEach(c => {
+        c.checked = el.checked;
+        const row = document.getElementById(cfg.rowPrefix + c.dataset.id);
+        if(el.checked){ cfg.set.add(c.dataset.id); if(row) row.classList.add('selected'); }
+        else           { cfg.set.delete(c.dataset.id); if(row) row.classList.remove('selected'); }
+      });
+      this.updateBar();
+    },
+    updateBar() {
+      const bar = document.getElementById(cfg.barId);
+      const cnt = document.getElementById(cfg.countId);
+      if(!bar) return;
+      if(cfg.set.size > 0){ bar.classList.add('show'); cnt.textContent = cfg.set.size + '件選択中'; }
+      else bar.classList.remove('show');
+    },
+    clear() {
+      cfg.set.clear();
+      document.querySelectorAll('#'+cfg.tbodyId+' input.row-chk').forEach(c => c.checked = false);
+      document.querySelectorAll('#'+cfg.tbodyId+' tr.selected').forEach(r => r.classList.remove('selected'));
+      const hd = document.getElementById(cfg.selectAllId);
+      if(hd){ hd.checked = false; hd.indeterminate = false; }
+      document.getElementById(cfg.barId)?.classList.remove('show');
+    }
+  };
 }
-
-function toggleAllOpps(el) {
-  document.querySelectorAll('#opp-tbody input.row-chk').forEach(c => {
-    c.checked = el.checked;
-    const row = document.getElementById('opp-row-' + c.dataset.id);
-    if(el.checked){ selectedOpps.add(c.dataset.id); if(row) row.classList.add('selected'); }
-    else           { selectedOpps.delete(c.dataset.id); if(row) row.classList.remove('selected'); }
-  });
-  updateOppBulkBar();
-}
-
-function updateOppBulkBar() {
-  const bar = document.getElementById('opp-bulk-bar');
-  const cnt = document.getElementById('opp-bulk-count');
-  if(!bar) return;
-  if(selectedOpps.size > 0){ bar.classList.add('show'); cnt.textContent = selectedOpps.size + '件選択中'; }
-  else bar.classList.remove('show');
-}
-
-function clearOppSelection() {
-  selectedOpps.clear();
-  document.querySelectorAll('#opp-tbody input.row-chk').forEach(c => c.checked = false);
-  document.querySelectorAll('#opp-tbody tr.selected').forEach(r => r.classList.remove('selected'));
-  const hd = document.getElementById('opp-select-all');
-  if(hd){ hd.checked = false; hd.indeterminate = false; }
-  document.getElementById('opp-bulk-bar')?.classList.remove('show');
-}
+const _oppBulk = _createBulkOps({ set: selectedOpps, tbodyId: 'opp-tbody', rowPrefix: 'opp-row-', barId: 'opp-bulk-bar', countId: 'opp-bulk-count', selectAllId: 'opp-select-all' });
+function onOppChk(el, id) { _oppBulk.onChk(el, id); }
+function toggleAllOpps(el) { _oppBulk.toggleAll(el); }
+function updateOppBulkBar() { _oppBulk.updateBar(); }
+function clearOppSelection() { _oppBulk.clear(); }
 
 function bulkDeleteOpps() {
   if(!selectedOpps.size) return;
@@ -2971,42 +2990,11 @@ function bulkDeleteOpps() {
   toast(count + '件を削除しました', 'success');
 }
 
-function onLeadChk(el, id) {
-  const row = document.getElementById('lead-row-' + id);
-  if(el.checked){ selectedLeads.add(id); if(row) row.classList.add('selected'); }
-  else           { selectedLeads.delete(id); if(row) row.classList.remove('selected'); }
-  updateLeadBulkBar();
-  const all = document.querySelectorAll('#leads-tbody input.row-chk');
-  const hd  = document.getElementById('lead-select-all');
-  if(hd){ hd.checked = all.length > 0 && [...all].every(c=>c.checked); hd.indeterminate = selectedLeads.size > 0 && selectedLeads.size < all.length; }
-}
-
-function toggleAllLeads(el) {
-  document.querySelectorAll('#leads-tbody input.row-chk').forEach(c => {
-    c.checked = el.checked;
-    const row = document.getElementById('lead-row-' + c.dataset.id);
-    if(el.checked){ selectedLeads.add(c.dataset.id); if(row) row.classList.add('selected'); }
-    else           { selectedLeads.delete(c.dataset.id); if(row) row.classList.remove('selected'); }
-  });
-  updateLeadBulkBar();
-}
-
-function updateLeadBulkBar() {
-  const bar = document.getElementById('lead-bulk-bar');
-  const cnt = document.getElementById('lead-bulk-count');
-  if(!bar) return;
-  if(selectedLeads.size > 0){ bar.classList.add('show'); cnt.textContent = selectedLeads.size + '件選択中'; }
-  else bar.classList.remove('show');
-}
-
-function clearLeadSelection() {
-  selectedLeads.clear();
-  document.querySelectorAll('#leads-tbody input.row-chk').forEach(c => c.checked = false);
-  document.querySelectorAll('#leads-tbody tr.selected').forEach(r => r.classList.remove('selected'));
-  const hd = document.getElementById('lead-select-all');
-  if(hd){ hd.checked = false; hd.indeterminate = false; }
-  document.getElementById('lead-bulk-bar')?.classList.remove('show');
-}
+const _leadBulk = _createBulkOps({ set: selectedLeads, tbodyId: 'leads-tbody', rowPrefix: 'lead-row-', barId: 'lead-bulk-bar', countId: 'lead-bulk-count', selectAllId: 'lead-select-all' });
+function onLeadChk(el, id) { _leadBulk.onChk(el, id); }
+function toggleAllLeads(el) { _leadBulk.toggleAll(el); }
+function updateLeadBulkBar() { _leadBulk.updateBar(); }
+function clearLeadSelection() { _leadBulk.clear(); }
 
 function bulkDeleteLeads() {
   if(!selectedLeads.size) return;
@@ -3253,6 +3241,7 @@ function fmt(n) {
   return '¥' + str + '万';
 }
 function fmtM(n) { return '¥' + (n/100).toFixed(1) + 'M'; }
+function fmtYen(n) { return '¥' + Math.round(n).toLocaleString(); }
 // 金額を小数4桁まで表示（末尾ゼロ削除）
 function fmtVal(n) {
   if(!n && n !== 0) return '';
@@ -3328,6 +3317,22 @@ function uidOpp() {
   return String(maxId + 1);
 }
 
+// ============================================================
+// Chart.js 共通設定
+// ============================================================
+const CHART_GRID_LIGHT = 'rgba(0,0,0,0.04)';
+const CHART_YEN_TICK = v => '¥' + v + '万';
+const CHART_YEN_TOOLTIP = ctx => '¥' + ctx.parsed.y.toLocaleString() + '万';
+
+function _chartYenScale(opts={}) {
+  return {
+    y: { beginAtZero: true, ticks: { callback: CHART_YEN_TICK, font: { size: opts.fontSize||10 }, ...(opts.maxTicks ? {maxTicksLimit:opts.maxTicks} : {}) }, grid: { color: CHART_GRID_LIGHT } },
+    x: { ticks: { font: { size: opts.xFontSize||11 }, ...(opts.maxRotation ? {maxRotation:opts.maxRotation} : {}) }, grid: { display: false } }
+  };
+}
+function _chartBaseOpts(pluginOpts={}, scaleOpts={}) {
+  return { responsive: true, maintainAspectRatio: false, plugins: pluginOpts, scales: scaleOpts };
+}
 function destroyChart(id) { if(charts[id]) { charts[id].destroy(); delete charts[id]; } }
 
 // ============================================================
@@ -3602,10 +3607,10 @@ function renderQuoteTotals() {
   });
   const tax   = Math.round(subtotal * 0.1);
   const total = subtotal + tax;
-  document.getElementById('q-subtotal').textContent = '¥' + subtotal.toLocaleString();
-  document.getElementById('q-tax').textContent      = '¥' + tax.toLocaleString();
-  document.getElementById('q-total').textContent    = '¥' + total.toLocaleString();
-  document.getElementById('q-total-header').textContent = '¥' + total.toLocaleString();
+  document.getElementById('q-subtotal').textContent = fmtYen(subtotal);
+  document.getElementById('q-tax').textContent      = fmtYen(tax);
+  document.getElementById('q-total').textContent    = fmtYen(total);
+  document.getElementById('q-total-header').textContent = fmtYen(total);
 }
 
 // 見積書PDF生成・案件に保存
@@ -3699,7 +3704,7 @@ function _buildQuoteHtml() {
   const subtotal = items.reduce((s, it) => s + it.price, 0);
   const tax      = Math.round(subtotal * 0.1);
   const total    = subtotal + tax;
-  const fmt      = v => '¥' + Math.round(v).toLocaleString();
+  const fmt = fmtYen;
   const ci       = COMPANY_INFO;
 
   // 日付フォーマット
@@ -4194,16 +4199,17 @@ function addInvItem(date, name, tax, qty, unit, price) {
   renderInvTotals();
 }
 
-function renderInvTotals() {
+// 汎用帳票合計計算（請求書・納品書共通）
+function _renderDocTotals(prefix) {
   let sub10=0, sub8=0, subOther=0;
-  document.querySelectorAll('#inv-items-tbody tr').forEach(tr => {
+  document.querySelectorAll('#'+prefix+'-items-tbody tr').forEach(tr => {
     const qtyEl   = tr.querySelector('input[type="number"]:first-of-type');
     const priceEl = tr.querySelectorAll('input[type="number"]')[1];
     const taxSel  = tr.querySelector('select');
-    const amtEl   = tr.querySelector('.inv-amt-cell');
+    const amtEl   = tr.querySelector('.'+prefix+'-amt-cell');
     if(!priceEl || !taxSel || !amtEl) return;
     const amt = (parseFloat(qtyEl?.value)||1) * (parseFloat(priceEl.value)||0);
-    amtEl.textContent = '¥' + Math.round(amt).toLocaleString();
+    amtEl.textContent = fmtYen(Math.round(amt));
     if(taxSel.value === '10%') sub10 += amt;
     else if(taxSel.value === '8%') sub8 += amt;
     else subOther += amt;
@@ -4212,15 +4218,17 @@ function renderInvTotals() {
   const tax10    = Math.round(sub10 * 0.1);
   const tax8     = Math.round(sub8 * 0.08);
   const total    = Math.round(subtotal) + tax10 + tax8;
-  document.getElementById('inv-sub10').textContent    = '¥' + Math.round(sub10).toLocaleString();
-  document.getElementById('inv-sub8').textContent     = '¥' + Math.round(sub8).toLocaleString();
-  document.getElementById('inv-tax10').textContent    = '¥' + tax10.toLocaleString();
-  document.getElementById('inv-tax8').textContent     = '¥' + tax8.toLocaleString();
-  document.getElementById('inv-subtotal').textContent = '¥' + Math.round(subtotal).toLocaleString();
-  document.getElementById('inv-tax').textContent      = '¥' + (tax10 + tax8).toLocaleString();
-  document.getElementById('inv-total').textContent    = '¥' + total.toLocaleString();
-  document.getElementById('inv-total-header').textContent = total.toLocaleString();
+  document.getElementById(prefix+'-sub10').textContent    = fmtYen(Math.round(sub10));
+  document.getElementById(prefix+'-sub8').textContent     = fmtYen(Math.round(sub8));
+  document.getElementById(prefix+'-tax10').textContent    = fmtYen(tax10);
+  document.getElementById(prefix+'-tax8').textContent     = fmtYen(tax8);
+  document.getElementById(prefix+'-subtotal').textContent = fmtYen(Math.round(subtotal));
+  document.getElementById(prefix+'-tax').textContent      = fmtYen(tax10 + tax8);
+  document.getElementById(prefix+'-total').textContent    = fmtYen(total);
+  document.getElementById(prefix+'-total-header').textContent = total.toLocaleString();
 }
+function renderInvTotals() { _renderDocTotals('inv'); }
+function renderDelTotals() { _renderDocTotals('del'); }
 
 // 請求書HTMLを生成する共通関数
 function _buildInvoiceHtml() {
@@ -4266,7 +4274,7 @@ function _buildInvoiceHtml() {
   const tax10    = Math.round(sub10 * 0.1);
   const tax8     = Math.round(sub8 * 0.08);
   const total    = subtotal + tax10 + tax8;
-  const fmt      = v => '¥' + Math.round(v).toLocaleString();
+  const fmt = fmtYen;
 
   const itemRows = items.map(it =>
     `<tr>
@@ -4602,32 +4610,7 @@ function addDelItem(name, qty, unit, price, isTen) {
   renderDelTotals();
 }
 
-function renderDelTotals() {
-  let sub10=0, sub8=0;
-  document.querySelectorAll('#del-items-tbody tr').forEach(tr => {
-    const qtyEl   = tr.querySelector('input[type="number"]:first-of-type');
-    const priceEl = tr.querySelectorAll('input[type="number"]')[1];
-    const taxSel  = tr.querySelector('select');
-    const amtEl   = tr.querySelector('.del-amt-cell');
-    if(!priceEl || !taxSel || !amtEl) return;
-    const amt = (parseFloat(qtyEl?.value)||1) * (parseFloat(priceEl.value)||0);
-    amtEl.textContent = '¥' + Math.round(amt).toLocaleString();
-    if(taxSel.value === '10%') sub10 += amt;
-    else sub8 += amt;
-  });
-  const subtotal = sub10 + sub8;
-  const tax10    = Math.round(sub10 * 0.1);
-  const tax8     = Math.round(sub8 * 0.08);
-  const total    = Math.round(subtotal) + tax10 + tax8;
-  document.getElementById('del-sub10').textContent    = '¥' + Math.round(sub10).toLocaleString();
-  document.getElementById('del-sub8').textContent     = '¥' + Math.round(sub8).toLocaleString();
-  document.getElementById('del-tax10').textContent    = '¥' + tax10.toLocaleString();
-  document.getElementById('del-tax8').textContent     = '¥' + tax8.toLocaleString();
-  document.getElementById('del-subtotal').textContent = '¥' + Math.round(subtotal).toLocaleString();
-  document.getElementById('del-tax').textContent      = '¥' + (tax10+tax8).toLocaleString();
-  document.getElementById('del-total').textContent    = '¥' + total.toLocaleString();
-  document.getElementById('del-total-header').textContent = total.toLocaleString();
-}
+
 
 // 納品書HTMLを生成する共通関数
 function _buildDeliveryHtml() {
@@ -4674,7 +4657,7 @@ function _buildDeliveryHtml() {
   const tax10    = Math.round(sub10 * 0.1);
   const tax8     = Math.round(sub8 * 0.08);
   const total    = subtotal + tax10 + tax8;
-  const fmt      = v => '¥' + Math.round(v).toLocaleString();
+  const fmt = fmtYen;
 
   const MAX_ROWS = 13;
   const itemRows = items.map(it =>
@@ -6418,7 +6401,7 @@ function renderDashboard() {
     data: {labels:['売上計上','請求','入金'], datasets:[{data:[totalSales, totalBilling, totalCash], backgroundColor:['#185FA5','#1D9E75','#639922'], borderRadius:5}]},
     options: {responsive:true, maintainAspectRatio:false,
       plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx => '¥'+ctx.parsed.y.toLocaleString()+'万'}}},
-      scales:{y:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万', font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}, x:{ticks:{font:{size:11}}, grid:{display:false}}}
+      scales:_chartYenScale()
     }
   });
 
@@ -6477,7 +6460,7 @@ function renderDashboard() {
       data:{labels:[prevLabel, '当期'], datasets:[{data:[prevSales, totalSales], backgroundColor:['rgba(136,135,128,0.6)', '#185FA5'], borderRadius:5}]},
       options:{responsive:true, maintainAspectRatio:false,
         plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>'¥'+ctx.parsed.y.toLocaleString()+'万'}}},
-        scales:{y:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万', font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}, x:{ticks:{font:{size:11}}, grid:{display:false}}}
+        scales:_chartYenScale()
       }
     });
   }
@@ -6794,38 +6777,43 @@ let monthlySortDir = 1;
 let leadSortKey = 'date';
 let leadSortDir = -1;
 
+// ============================================================
+// 汎用ソートヘッダー更新
+// ============================================================
+function _updateSortHeaders(fnName, key, dir) {
+  // onclick属性ベースのヘッダー更新
+  document.querySelectorAll('[onclick^="'+fnName+'"]').forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    const m = th.getAttribute('onclick').match(new RegExp(fnName+"\\('(\\w+)'\\)"));
+    if(m && m[1] === key) th.classList.add(dir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+}
+function _updateSortHeadersByData(selector, key, dir) {
+  // data-key属性ベースのヘッダー更新
+  document.querySelectorAll(selector).forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    if(th.dataset.key === key) th.classList.add(dir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+}
+
 function sortOpps(key) {
   if(oppSortKey === key) oppSortDir *= -1;
   else { oppSortKey = key; oppSortDir = 1; }
-  // ヘッダークラス更新
-  document.querySelectorAll('#opp-tbody').forEach(()=>{});
-  document.querySelectorAll('[onclick^="sortOpps"]').forEach(th => {
-    th.classList.remove('sort-asc','sort-desc');
-    const k = th.getAttribute('onclick').match(/sortOpps\('(\w+)'\)/)?.[1];
-    if(k === oppSortKey) th.classList.add(oppSortDir === 1 ? 'sort-asc' : 'sort-desc');
-  });
+  _updateSortHeaders('sortOpps', oppSortKey, oppSortDir);
   renderOpportunities();
 }
 
 function sortLeads(key) {
   if(leadSortKey === key) leadSortDir *= -1;
   else { leadSortKey = key; leadSortDir = 1; }
-  document.querySelectorAll('[onclick^="sortLeads"]').forEach(th => {
-    th.classList.remove('sort-asc','sort-desc');
-    const k = th.getAttribute('onclick').match(/sortLeads\('(\w+)'\)/)?.[1];
-    if(k === leadSortKey) th.classList.add(leadSortDir === 1 ? 'sort-asc' : 'sort-desc');
-  });
+  _updateSortHeaders('sortLeads', leadSortKey, leadSortDir);
   renderLeads();
 }
 
 function sortMonthly(key) {
   if(monthlySortKey === key) monthlySortDir *= -1;
   else { monthlySortKey = key; monthlySortDir = 1; }
-  document.querySelectorAll('[onclick^="sortMonthly"]').forEach(th => {
-    th.classList.remove('sort-asc','sort-desc');
-    const k = th.getAttribute('onclick').replace("sortMonthly('","").replace("')","");
-    if(k === monthlySortKey) th.classList.add(monthlySortDir === 1 ? 'sort-asc' : 'sort-desc');
-  });
+  _updateSortHeaders('sortMonthly', monthlySortKey, monthlySortDir);
   renderMonthly();
 }
 
@@ -7511,11 +7499,7 @@ let segSortDir   = -1;
 function sortCustomers(key) {
   if(custSortKey === key) custSortDir *= -1;
   else { custSortKey = key; custSortDir = 1; }
-  document.querySelectorAll('[onclick^="sortCustomers"]').forEach(th => {
-    th.classList.remove('sort-asc','sort-desc');
-    const k = th.getAttribute('onclick').replace("sortCustomers('","").replace("')","");
-    if(k === custSortKey) th.classList.add(custSortDir === 1 ? 'sort-asc' : 'sort-desc');
-  });
+  _updateSortHeaders('sortCustomers', custSortKey, custSortDir);
   renderCustomerReport();
 }
 
@@ -7560,24 +7544,14 @@ function renderCustomerReport() {
 function sortOwners(key) {
   if(ownerSortKey === key) ownerSortDir *= -1;
   else { ownerSortKey = key; ownerSortDir = 1; }
-  document.querySelectorAll('#owner-detail-thead th.sortable')
-    .forEach(th => {
-      th.classList.remove('sort-asc','sort-desc');
-      if(th.dataset.key === key)
-        th.classList.add(ownerSortDir === 1 ? 'sort-asc' : 'sort-desc');
-    });
+  _updateSortHeadersByData('#owner-detail-thead th.sortable', ownerSortKey, ownerSortDir);
   renderOwnerTable();
 }
 
 function sortSegs(key) {
   if(segSortKey === key) segSortDir *= -1;
   else { segSortKey = key; segSortDir = 1; }
-  document.querySelectorAll('#seg-detail-thead th.sortable')
-    .forEach(th => {
-      th.classList.remove('sort-asc','sort-desc');
-      if(th.dataset.key === key)
-        th.classList.add(segSortDir === 1 ? 'sort-asc' : 'sort-desc');
-    });
+  _updateSortHeadersByData('#seg-detail-thead th.sortable', segSortKey, segSortDir);
   renderSegmentTab();
 }
 
