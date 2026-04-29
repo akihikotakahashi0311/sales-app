@@ -3282,6 +3282,14 @@ function onGlobalSearch(val) {
 const _searchState = {};
 
 function navigate(page) {
+  // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみアクセス可
+  if(page === 'cashflow' && currentUser) {
+    const canCF = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
+    if(!canCF) {
+      toast('キャッシュフロー予測は管理部のみ閲覧可能です', 'error');
+      return;
+    }
+  }
   // 離れる前に現在ページの検索値を保存
   const prevPage = document.querySelector('.nav-item.active')?.dataset?.page;
   if(prevPage) {
@@ -10363,6 +10371,15 @@ function updateUserUI() {
       if(firstTab) firstTab.click();
     }
   }
+  // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみ表示
+  const canCashflow = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
+  const cfNav = document.querySelector('.nav-item[data-page="cashflow"]');
+  if(cfNav) cfNav.style.display = canCashflow ? '' : 'none';
+  // キャッシュフロー表示中なのに権限なし → ダッシュボードへ遷移
+  if(!canCashflow) {
+    const activePage = document.querySelector('.page.active');
+    if(activePage && activePage.id === 'page-cashflow') navigate('dashboard');
+  }
 }
 
 // ─ 全画面を現在ユーザー・スコープで再描画
@@ -10372,6 +10389,7 @@ function refreshAllViews() {
   else if(page === 'opportunities') renderOpportunities();
   else if(page === 'monthly')       renderMonthly();
   else if(page === 'payment')       renderPayment();
+  else if(page === 'cashflow')      renderCashflow();
   else if(page === 'reports')       renderReports();
   else if(page === 'alerts')        renderAlerts();
   else                              renderDashboard();
