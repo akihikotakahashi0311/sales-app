@@ -1637,7 +1637,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         <!-- コントロール行 -->
         <div class="card" style="margin-bottom:16px;">
           <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-            <span class="card-title">キャッシュフロー予測</span>
+            <span class="card-title">月次キャッシュフロー計算書</span>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
                 予測期間
@@ -1661,7 +1661,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            入金予測ルール：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に請求予定額が入金されるものとして算出　／　コスト支出：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜1月実績、以降は直近4ヶ月平均予測）
+            入金：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に入金と想定　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜1月実績、以降は直近4ヶ月平均予測・減価償却費除外）　／　投資・財務CF：支払利息
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -1671,7 +1671,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         <!-- 月別内訳テーブル -->
         <div class="card">
           <div class="card-header">
-            <span class="card-title">月別キャッシュフロー内訳</span>
+            <span class="card-title">月次キャッシュフロー内訳（I〜VII）</span>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflow()">
             </div>
@@ -9006,31 +9006,36 @@ let cfChart = null;
 
 // ── 試算表（残高試算表）からのコストデータ ──
 // 株式会社４DIN 2025/10〜2026/02 実績 + 3月以降予測（直近4ヶ月平均ベース）
+// ※ 減価償却費は非資金項目のため営業CF出金から除外し、投資CFに含めない
 const trialBalanceCosts = (function() {
   const actual = {
     '2025-10': {
       cogs: { salary: 6880169, welfare: 1177328, telecom: 3897253, depreciation: 233193, outsource: 743872, license: 1224293 },
-      sga:  { salary: 4724170, welfare: 610716, benefits: 168887, recruit: 87823, advertising: 467177, entertainment: 885585, meeting: 176537, travel: 1725263, telecom: 172487, supplies: 41369, utilities: 3784, dues: 133333, fees: 1667870, rent: 190000, lease: 8700, insurance: 57172, tax: 26960, professional: 937300, outsource: 5192808, donation: 0, rnd: 59092, depreciation: 111250 }
+      sga:  { salary: 4724170, welfare: 610716, benefits: 168887, recruit: 87823, advertising: 467177, entertainment: 885585, meeting: 176537, travel: 1725263, telecom: 172487, supplies: 41369, utilities: 3784, dues: 133333, fees: 1667870, rent: 190000, lease: 8700, insurance: 57172, tax: 26960, professional: 937300, outsource: 5192808, donation: 0, rnd: 59092, depreciation: 111250 },
+      interest: 74235
     },
     '2025-11': {
       cogs: { salary: 7682693, welfare: 1326637, telecom: 3487906, depreciation: 233193, outsource: 763872, license: 1224293 },
-      sga:  { salary: 4733818, welfare: 610716, benefits: 121126, recruit: 40914, advertising: 466300, entertainment: 1046183, meeting: 25416, travel: 1318875, telecom: 191267, supplies: 214514, utilities: 5420, dues: 126333, fees: 138997, rent: 190000, lease: 8700, insurance: 57172, tax: 2600, professional: 937300, outsource: 5070062, donation: 0, rnd: 0, depreciation: 111250 }
+      sga:  { salary: 4733818, welfare: 610716, benefits: 121126, recruit: 40914, advertising: 466300, entertainment: 1046183, meeting: 25416, travel: 1318875, telecom: 191267, supplies: 214514, utilities: 5420, dues: 126333, fees: 138997, rent: 190000, lease: 8700, insurance: 57172, tax: 2600, professional: 937300, outsource: 5070062, donation: 0, rnd: 0, depreciation: 111250 },
+      interest: 41096
     },
     '2025-12': {
       cogs: { salary: 8542157, welfare: 1389024, telecom: 3287903, depreciation: 233193, outsource: 248420, license: 1224293 },
-      sga:  { salary: 4728500, welfare: 610769, benefits: 25000, recruit: 46366, advertising: 1340910, entertainment: 1058260, meeting: 32597, travel: 1548283, telecom: 170615, supplies: 676045, utilities: 5830, dues: 340333, fees: 142015, rent: 190000, lease: 8700, insurance: 111142, tax: 33000, professional: 937300, outsource: 6330065, donation: 45000, rnd: 0, depreciation: 127537 }
+      sga:  { salary: 4728500, welfare: 610769, benefits: 25000, recruit: 46366, advertising: 1340910, entertainment: 1058260, meeting: 32597, travel: 1548283, telecom: 170615, supplies: 676045, utilities: 5830, dues: 340333, fees: 142015, rent: 190000, lease: 8700, insurance: 111142, tax: 33000, professional: 937300, outsource: 6330065, donation: 45000, rnd: 0, depreciation: 127537 },
+      interest: 78712
     },
     '2026-01': {
       cogs: { salary: 8988245, welfare: 1446261, telecom: 3410362, depreciation: 233193, outsource: 648137, license: 1224293 },
-      sga:  { salary: 5395167, welfare: 719684, benefits: 41453, recruit: 46638, advertising: 704264, entertainment: 895133, meeting: 26667, travel: 1370865, telecom: 184323, supplies: 116546, utilities: 5898, dues: 94333, fees: 143955, rent: 190000, lease: 8700, insurance: 57172, tax: 520, professional: 1032300, outsource: 5220685, donation: 0, rnd: 0, depreciation: 253871 }
+      sga:  { salary: 5395167, welfare: 719684, benefits: 41453, recruit: 46638, advertising: 704264, entertainment: 895133, meeting: 26667, travel: 1370865, telecom: 184323, supplies: 116546, utilities: 5898, dues: 94333, fees: 143955, rent: 190000, lease: 8700, insurance: 57172, tax: 520, professional: 1032300, outsource: 5220685, donation: 0, rnd: 0, depreciation: 253871 },
+      interest: 71463
     },
     '2026-02': {
       cogs: { salary: 9318020, welfare: 1450219, telecom: 0, depreciation: 0, outsource: 0, license: 0 },
-      sga:  { salary: 5395167, welfare: 719684, benefits: 0, recruit: 0, advertising: 0, entertainment: 0, meeting: 0, travel: 0, telecom: 0, supplies: 0, utilities: 0, dues: 0, fees: 0, rent: 0, lease: 0, insurance: 0, tax: 0, professional: 0, outsource: 0, donation: 0, rnd: 0, depreciation: 0 }
+      sga:  { salary: 5395167, welfare: 719684, benefits: 0, recruit: 0, advertising: 0, entertainment: 0, meeting: 0, travel: 0, telecom: 0, supplies: 0, utilities: 0, dues: 0, fees: 0, rent: 0, lease: 0, insurance: 0, tax: 0, professional: 0, outsource: 0, donation: 0, rnd: 0, depreciation: 0 },
+      interest: 38356
     }
   };
   function sumObj(o) { return Object.values(o).reduce((a,b)=>a+b,0); }
-  function totalMonth(m) { return sumObj(m.cogs) + sumObj(m.sga); }
 
   // 直近4ヶ月(10〜1月)の平均をベースに3月以降を予測(2月は一部のみ実績)
   const baseMonths = ['2025-10','2025-11','2025-12','2026-01'];
@@ -9041,24 +9046,42 @@ const trialBalanceCosts = (function() {
   for(const k of Object.keys(actual['2025-10'].sga)) {
     avgSga[k] = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].sga[k], 0) / baseMonths.length);
   }
+  const avgInterest = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].interest, 0) / baseMonths.length);
 
   return {
     actual,
+    // 万円単位で返却（試算表は円単位）
     getMonthlyCost(ym) {
-      if(actual[ym]) {
-        const m = actual[ym];
-        const cogsTotal = sumObj(m.cogs);
-        const sgaTotal = sumObj(m.sga);
-        return { cogs: cogsTotal, sga: sgaTotal, total: cogsTotal + sgaTotal, source: 'actual', detail: m };
-      }
-      // 3月以降は平均ベースの予測
-      const cogsTotal = sumObj(avgCogs);
-      const sgaTotal = sumObj(avgSga);
-      return { cogs: cogsTotal, sga: sgaTotal, total: cogsTotal + sgaTotal, source: 'forecast', detail: { cogs: {...avgCogs}, sga: {...avgSga} } };
+      const m = actual[ym];
+      const src = m ? 'actual' : 'forecast';
+      const cogs = m ? m.cogs : avgCogs;
+      const sga  = m ? m.sga  : avgSga;
+      const interest = m ? m.interest : avgInterest;
+
+      // 減価償却費は非資金項目なので営業CF出金から除外
+      const cogsDepreciation = cogs.depreciation || 0;
+      const sgaDepreciation  = sga.depreciation || 0;
+      const cogsCash = (sumObj(cogs) - cogsDepreciation) / 10000;
+      const sgaCash  = (sumObj(sga) - sgaDepreciation) / 10000;
+      const totalDepreciation = (cogsDepreciation + sgaDepreciation) / 10000;
+
+      // 営業CF出金の内訳カテゴリ
+      const personnelCost = ((cogs.salary||0) + (cogs.welfare||0) + (sga.salary||0) + (sga.welfare||0) + (sga.benefits||0)) / 10000;
+      const outsourceCost = ((cogs.outsource||0) + (sga.outsource||0) + (sga.professional||0)) / 10000;
+      const infraCost     = ((cogs.telecom||0) + (cogs.license||0) + (sga.telecom||0) + (sga.rent||0) + (sga.lease||0) + (sga.utilities||0) + (sga.insurance||0)) / 10000;
+      const bizExpCost    = ((sga.travel||0) + (sga.entertainment||0) + (sga.meeting||0) + (sga.advertising||0) + (sga.recruit||0) + (sga.supplies||0) + (sga.dues||0) + (sga.fees||0) + (sga.tax||0) + (sga.donation||0) + (sga.rnd||0)) / 10000;
+      const interestMan   = interest / 10000;
+
+      return {
+        cogsCash, sgaCash,
+        totalCashOut: cogsCash + sgaCash,
+        depreciation: totalDepreciation,
+        interest: interestMan,
+        source: src,
+        breakdown: { personnelCost, outsourceCost, infraCost, bizExpCost }
+      };
     },
-    avgCogs,
-    avgSga,
-    sumObj
+    avgCogs, avgSga, sumObj
   };
 })();
 
@@ -9221,7 +9244,7 @@ function buildCashflowData() {
   // 月別集計用マップ
   const monthMap = {};
   months.forEach(ym => {
-    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0, costOut: 0, costSource: 'forecast' };
+    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0, costOut: 0, costSource: 'forecast', interest: 0, depreciation: 0, costBreakdown: null };
   });
 
   // 案件別の予測レコードも保持
@@ -9267,12 +9290,15 @@ function buildCashflowData() {
   // ── 試算表コストデータを各月に反映 ──
   months.forEach(ym => {
     const cost = trialBalanceCosts.getMonthlyCost(ym);
-    monthMap[ym].costOut = cost.total;
+    monthMap[ym].costOut = cost.totalCashOut;
     monthMap[ym].costSource = cost.source;
+    monthMap[ym].interest = cost.interest;
+    monthMap[ym].depreciation = cost.depreciation;
+    monthMap[ym].costBreakdown = cost.breakdown;
   });
 
-  // monthlyTotals 配列
-  let cumCash = 0;
+  // monthlyTotals 配列 ─ CF計算書構造(I〜VII)
+  let runningBalance = 0; // 期首残高をゼロスタート（実データなしのため累積で管理）
   const monthlyTotals = months.map(ym => {
     const d = monthMap[ym];
     const isPast = ym < currentMonth;
@@ -9281,9 +9307,7 @@ function buildCashflowData() {
     // 過去月: 入金実績のみ使用。当月: 実績＋予測。未来月: 予測のみ
     let cashActual = 0, cashForecast = 0;
     if(isPast) {
-      // 過去月: 実績があればそれ、なければ予測を未回収として扱う
       cashActual = d.cashActual;
-      // 過去月で予測入金があるが実績がない → 遅延扱い、表示はしない
     } else if(isCurrent) {
       cashActual = d.cashActual;
       cashForecast = d.cashForecast;
@@ -9291,22 +9315,42 @@ function buildCashflowData() {
       cashForecast = d.cashForecast;
     }
 
-    cumCash += cashActual + cashForecast - d.costOut;
+    const r = v => Math.round(v * 100) / 100;
+    // I. 期首現金残高
+    const openBal = r(runningBalance);
+    // II. 営業活動CF（入金）
+    const opCashIn = r(cashActual + cashForecast);
+    // III. 営業活動CF（出金）  ※減価償却費は非資金のため除外済
+    const opCashOut = r(d.costOut);
+    // IV. 営業CF差引額 = II - III
+    const opNetCF = r(opCashIn - opCashOut);
+    // V. 投資・財務CF（支払利息のみ識別可能、設備投資・借入データなし→0扱い）
+    const investFinCF = r(-d.interest);
+    // VI. 当月純増減額 = IV + V
+    const netChange = r(opNetCF + investFinCF);
+    // VII. 期末現金残高 = I + VI
+    runningBalance = r(openBal + netChange);
+    const closeBal = runningBalance;
 
     return {
       ym,
       label: monthLabel(ym),
       shortLabel: ym.split('-')[1] + '月',
-      sales: Math.round(d.sales * 100) / 100,
-      billing: Math.round(d.billing * 100) / 100,
-      cashActual: Math.round(cashActual * 100) / 100,
-      cashForecast: Math.round(cashForecast * 100) / 100,
-      costOut: Math.round(d.costOut * 100) / 100,
+      // 従来互換
+      sales: r(d.sales), billing: r(d.billing),
+      cashActual: r(cashActual), cashForecast: r(cashForecast),
+      // CF計算書 I〜VII
+      openBal, opCashIn, opCashOut, opNetCF, investFinCF, netChange, closeBal,
+      // 内訳
       costSource: d.costSource,
-      netCash: Math.round((cashActual + cashForecast - d.costOut) * 100) / 100,
-      cumCash: Math.round(cumCash * 100) / 100,
-      isPast,
-      isCurrent,
+      costBreakdown: d.costBreakdown,
+      interest: r(d.interest),
+      depreciation: r(d.depreciation),
+      isPast, isCurrent,
+      // 旧互換
+      costOut: opCashOut,
+      netCash: netChange,
+      cumCash: closeBal,
     };
   });
 
@@ -9344,24 +9388,24 @@ function renderCashflow() {
 
   document.getElementById('cf-metrics').innerHTML = `
     <div class="metric-card blue">
-      <div class="metric-label">当月 入金（実績＋予測）</div>
-      <div class="metric-value">${fmt(thisMonth.cashActual + thisMonth.cashForecast)}</div>
+      <div class="metric-label">II. 当月 営業CF入金</div>
+      <div class="metric-value">${fmt(thisMonth.opCashIn)}</div>
       <div class="metric-change neutral">実績 ${fmt(thisMonth.cashActual)} ／ 予測 ${fmt(thisMonth.cashForecast)}</div>
     </div>
     <div class="metric-card" style="border-left:3px solid var(--purple);">
-      <div class="metric-label">当月 コスト支出</div>
-      <div class="metric-value" style="color:var(--red);">${fmt(thisMonth.costOut)}</div>
-      <div class="metric-change neutral">${thisMonth.costSource === 'actual' ? '実績' : '予測（直近平均）'}</div>
+      <div class="metric-label">III. 当月 営業CF出金</div>
+      <div class="metric-value" style="color:var(--red);">${fmt(thisMonth.opCashOut)}</div>
+      <div class="metric-change neutral">${thisMonth.costSource === 'actual' ? '試算表実績' : '予測（直近4ヶ月平均）'}</div>
     </div>
-    <div class="metric-card ${(thisMonth.netCash||0) >= 0 ? 'green' : 'red'}">
-      <div class="metric-label">当月 ネットCF</div>
-      <div class="metric-value">${fmt(thisMonth.netCash)}</div>
-      <div class="metric-change neutral">入金 − コスト支出</div>
+    <div class="metric-card ${(thisMonth.netChange||0) >= 0 ? 'green' : 'red'}">
+      <div class="metric-label">VI. 当月 純増減額</div>
+      <div class="metric-value">${fmt(thisMonth.netChange)}</div>
+      <div class="metric-change neutral">営業CF ${fmt(thisMonth.opNetCF)} ＋ 財務CF ${fmt(thisMonth.investFinCF)}</div>
     </div>
     <div class="metric-card green">
       <div class="metric-label">翌月 入金予測</div>
       <div class="metric-value">${fmt(nextMonth.cashForecast)}</div>
-      <div class="metric-change neutral">翌月コスト予測 ${fmt(nextMonth.costOut)}</div>
+      <div class="metric-change neutral">翌月出金予測 ${fmt(nextMonth.opCashOut)}</div>
     </div>
     <div class="metric-card amber">
       <div class="metric-label">未回収残高</div>
@@ -9402,57 +9446,52 @@ function renderCashflowChart(data) {
       labels,
       datasets: [
         {
-          label: '売上計上',
-          data: data.map(d => d.sales),
-          backgroundColor: isDark ? 'rgba(56,138,221,0.45)' : 'rgba(24,95,165,0.35)',
-          borderRadius: 3,
-          order: 5,
-          barPercentage: 0.7,
-        },
-        {
-          label: '請求額',
-          data: data.map(d => d.billing),
-          backgroundColor: isDark ? 'rgba(29,158,117,0.45)' : 'rgba(29,158,117,0.35)',
+          label: 'II. 営業CF入金',
+          data: data.map(d => d.opCashIn),
+          backgroundColor: isDark ? 'rgba(29,158,117,0.55)' : 'rgba(29,158,117,0.45)',
           borderRadius: 3,
           order: 4,
-          barPercentage: 0.7,
+          barPercentage: 0.75,
         },
         {
-          label: '入金実績',
-          data: data.map(d => d.cashActual),
-          backgroundColor: isDark ? 'rgba(239,159,39,0.7)' : 'rgba(186,117,23,0.55)',
-          borderRadius: 3,
-          order: 3,
-          barPercentage: 0.7,
-        },
-        {
-          label: '入金予測',
-          data: data.map(d => d.cashForecast),
-          backgroundColor: isDark ? 'rgba(239,159,39,0.25)' : 'rgba(186,117,23,0.18)',
-          borderColor: isDark ? 'rgba(239,159,39,0.6)' : 'rgba(186,117,23,0.45)',
-          borderWidth: 1,
-          borderDash: [4, 2],
-          borderRadius: 3,
-          order: 2,
-          barPercentage: 0.7,
-        },
-        {
-          label: 'コスト支出',
-          data: data.map(d => -d.costOut),
-          backgroundColor: isDark ? 'rgba(226,75,74,0.4)' : 'rgba(226,75,74,0.25)',
+          label: 'III. 営業CF出金',
+          data: data.map(d => -d.opCashOut),
+          backgroundColor: isDark ? 'rgba(226,75,74,0.45)' : 'rgba(226,75,74,0.3)',
           borderColor: isDark ? 'rgba(226,75,74,0.7)' : 'rgba(226,75,74,0.5)',
           borderWidth: 1,
           borderRadius: 3,
-          order: 1,
-          barPercentage: 0.7,
+          order: 3,
+          barPercentage: 0.75,
         },
         {
-          label: '累積キャッシュ',
-          data: data.map(d => d.cumCash),
+          label: 'V. 投資・財務CF',
+          data: data.map(d => d.investFinCF),
+          backgroundColor: isDark ? 'rgba(83,74,183,0.45)' : 'rgba(83,74,183,0.3)',
+          borderRadius: 3,
+          order: 2,
+          barPercentage: 0.75,
+        },
+        {
+          label: 'VI. 純増減額',
+          data: data.map(d => d.netChange),
+          type: 'line',
+          borderColor: isDark ? '#1D9E75' : '#1D9E75',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          pointRadius: 4,
+          pointBackgroundColor: data.map(d => d.netChange >= 0 ? '#1D9E75' : '#E24B4A'),
+          tension: 0.3,
+          yAxisID: 'y',
+          order: 1,
+        },
+        {
+          label: 'VII. 期末残高',
+          data: data.map(d => d.closeBal),
           type: 'line',
           borderColor: isDark ? '#E24B4A' : '#A32D2D',
           backgroundColor: 'transparent',
-          borderWidth: 2,
+          borderWidth: 2.5,
           pointRadius: 3,
           pointBackgroundColor: isDark ? '#E24B4A' : '#A32D2D',
           tension: 0.3,
@@ -9523,73 +9562,107 @@ function renderCashflowChart(data) {
 function renderCashflowTable(monthlyTotals) {
   if(!monthlyTotals) monthlyTotals = buildCashflowData().monthlyTotals;
 
+  // ── 横型月次CF計算書テーブル ──
+  // 行: I〜VII の各項目、列: 各月
+
+  const hdrStyle = 'padding:6px 10px;text-align:right;font-size:11px;white-space:nowrap;min-width:100px;';
+  const rowLabelStyle = 'padding:8px 10px;font-weight:500;white-space:nowrap;position:sticky;left:0;z-index:1;';
+  const cellStyle = 'padding:6px 10px;text-align:right;font-size:12px;white-space:nowrap;';
+
   // ヘッダー
   let thead = '<tr>';
-  thead += '<th style="padding:8px 10px;text-align:left;min-width:100px;position:sticky;left:0;background:var(--bg-secondary);z-index:1;">月</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">売上計上</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">請求額</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">入金実績</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">入金予測</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">入金計</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;color:var(--red);">コスト支出</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;font-weight:700;">ネットCF</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">累積CF</th>';
-  thead += '<th style="padding:8px 10px;text-align:center;">状態</th></tr>';
+  thead += `<th style="${rowLabelStyle}background:var(--bg-secondary);min-width:200px;text-align:left;">項目</th>`;
+  monthlyTotals.forEach(m => {
+    const bg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-secondary)';
+    thead += `<th style="${hdrStyle}background:${bg};">${m.shortLabel}${m.isCurrent ? '<br><span class="badge badge-blue" style="font-size:9px;">当月</span>' : (!m.isPast ? '<br><span class="badge badge-gray" style="font-size:9px;">予測</span>' : '')}</th>`;
+  });
+  thead += '</tr>';
   document.getElementById('cf-thead').innerHTML = thead;
 
+  // CF行定義
+  const rows = [
+    { key: 'openBal',     label: 'I. 期首現金残高',          cls: 'section-head', color: '' },
+    { key: 'opCashIn',    label: 'II. 営業CF（入金）',       cls: 'sub', color: 'var(--green)' },
+    { key: '_cashDetail', label: '　　入金実績',             cls: 'detail', color: '' },
+    { key: '_cashFcst',   label: '　　入金予測',             cls: 'detail', color: 'var(--amber)' },
+    { key: 'opCashOut',   label: 'III. 営業CF（出金）',      cls: 'sub', color: 'var(--red)' },
+    { key: '_personnel',  label: '　　人件費',               cls: 'detail', color: '' },
+    { key: '_outsource',  label: '　　外注・専門家',          cls: 'detail', color: '' },
+    { key: '_infra',      label: '　　通信・家賃・設備',      cls: 'detail', color: '' },
+    { key: '_bizexp',     label: '　　旅費・交際・その他',     cls: 'detail', color: '' },
+    { key: 'opNetCF',     label: 'IV. 営業CF差引額',         cls: 'section-head', color: '' },
+    { key: 'investFinCF', label: 'V. 投資・財務CF',          cls: 'sub', color: 'var(--purple)' },
+    { key: '_interest',   label: '　　支払利息',             cls: 'detail', color: '' },
+    { key: 'netChange',   label: 'VI. 当月純増減額',         cls: 'total', color: '' },
+    { key: 'closeBal',    label: 'VII. 期末現金残高',         cls: 'total-end', color: '' },
+  ];
+
   let html = '';
-  monthlyTotals.forEach(m => {
-    const isFuture = !m.isPast && !m.isCurrent;
-    const cashTotal = m.cashActual + m.cashForecast;
-    const bgStyle = m.isCurrent ? 'background:var(--accent-light);' : '';
-    const cfColor = m.cumCash < 0 ? 'color:var(--red);font-weight:600;' : '';
-    const netColor = m.netCash < 0 ? 'color:var(--red);font-weight:600;' : 'color:var(--green);font-weight:600;';
-    const stickyBg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-primary)';
-    const costStyle = m.costSource === 'forecast' ? 'font-style:italic;' : '';
+  rows.forEach(row => {
+    const isSectionHead = row.cls === 'section-head';
+    const isTotal = row.cls === 'total' || row.cls === 'total-end';
+    const isDetail = row.cls === 'detail';
+    const rowBg = isTotal ? 'background:var(--bg-secondary);' : '';
+    const fontW = (isSectionHead || isTotal) ? 'font-weight:600;' : (isDetail ? 'font-weight:400;color:var(--text-muted);font-size:11px;' : '');
+    const stickyBg = isTotal ? 'var(--bg-secondary)' : 'var(--bg-primary)';
+    const borderTop = (row.key === 'opNetCF' || row.key === 'netChange' || row.key === 'closeBal') ? 'border-top:1px solid var(--border-medium);' : '';
 
-    let statusBadge = '';
-    if(m.isCurrent) statusBadge = '<span class="badge badge-blue">当月</span>';
-    else if(isFuture) statusBadge = '<span class="badge badge-gray">予測</span>';
-    else statusBadge = '<span class="badge badge-green">確定</span>';
+    html += `<tr style="${rowBg}${borderTop}">`;
+    html += `<td style="${rowLabelStyle}${fontW}background:${stickyBg};">${row.label}</td>`;
 
-    const dash = '<span style="color:var(--text-muted);">—</span>';
-    html += `<tr style="${bgStyle}">`;
-    html += `<td style="padding:8px 10px;font-weight:500;position:sticky;left:0;background:${stickyBg};z-index:1;">${m.label}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;">${m.sales ? fmt(m.sales) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;">${m.billing ? fmt(m.billing) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;">${m.cashActual ? fmt(m.cashActual) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;${isFuture||m.isCurrent ? 'font-style:italic;color:var(--amber);' : ''}">${m.cashForecast ? fmt(m.cashForecast) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;font-weight:500;">${cashTotal ? fmt(cashTotal) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;color:var(--red);${costStyle}">${m.costOut ? fmt(m.costOut) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;${netColor}">${fmt(m.netCash)}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;font-weight:600;${cfColor}">${fmt(m.cumCash)}</td>`;
-    html += `<td style="padding:8px 10px;text-align:center;">${statusBadge}</td>`;
+    monthlyTotals.forEach(m => {
+      const bg = m.isCurrent ? 'background:var(--accent-light);' : '';
+      let val = 0;
+      switch(row.key) {
+        case 'openBal': val = m.openBal; break;
+        case 'opCashIn': val = m.opCashIn; break;
+        case '_cashDetail': val = m.cashActual; break;
+        case '_cashFcst': val = m.cashForecast; break;
+        case 'opCashOut': val = m.opCashOut; break;
+        case '_personnel': val = m.costBreakdown?.personnelCost || 0; break;
+        case '_outsource': val = m.costBreakdown?.outsourceCost || 0; break;
+        case '_infra': val = m.costBreakdown?.infraCost || 0; break;
+        case '_bizexp': val = m.costBreakdown?.bizExpCost || 0; break;
+        case 'opNetCF': val = m.opNetCF; break;
+        case 'investFinCF': val = m.investFinCF; break;
+        case '_interest': val = -m.interest; break;
+        case 'netChange': val = m.netChange; break;
+        case 'closeBal': val = m.closeBal; break;
+      }
+      const dash = '<span style="color:var(--text-muted);">—</span>';
+      let valColor = row.color || '';
+      if(!valColor && (row.key === 'opNetCF' || row.key === 'netChange' || row.key === 'closeBal')) {
+        valColor = val < 0 ? 'var(--red)' : 'var(--green)';
+      }
+      const forecast = (!m.isPast && !m.isCurrent && row.key !== 'openBal' && row.key !== 'closeBal') ? 'font-style:italic;' : '';
+      const show = (val !== 0 || isTotal || isSectionHead) ? fmt(val) : dash;
+      html += `<td style="${cellStyle}${fontW}${bg}${forecast}${valColor ? 'color:'+valColor+';' : ''}">${show}</td>`;
+    });
     html += '</tr>';
   });
   document.getElementById('cf-tbody').innerHTML = html;
 
-  // フッター
+  // フッター（期間合計）
   const totals = monthlyTotals.reduce((acc, m) => {
-    acc.sales += m.sales; acc.billing += m.billing;
-    acc.cashActual += m.cashActual; acc.cashForecast += m.cashForecast;
-    acc.costOut += m.costOut; acc.netCash += m.netCash;
+    acc.opCashIn += m.opCashIn; acc.opCashOut += m.opCashOut;
+    acc.opNetCF += m.opNetCF; acc.investFinCF += m.investFinCF;
+    acc.netChange += m.netChange;
     return acc;
-  }, { sales: 0, billing: 0, cashActual: 0, cashForecast: 0, costOut: 0, netCash: 0 });
+  }, { opCashIn: 0, opCashOut: 0, opNetCF: 0, investFinCF: 0, netChange: 0 });
+  const last = monthlyTotals[monthlyTotals.length - 1] || {};
 
-  document.getElementById('cf-tfoot').innerHTML = `
-    <tr>
-      <td style="padding:8px 10px;font-weight:600;">合計</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.sales)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.billing)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--amber);">${fmt(totals.cashForecast)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual + totals.cashForecast)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--red);">${fmt(totals.costOut)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;${totals.netCash < 0 ? 'color:var(--red);' : 'color:var(--green);'}">${fmt(totals.netCash)}</td>
-      <td style="padding:8px 10px;"></td>
-      <td style="padding:8px 10px;"></td>
-    </tr>
-  `;
+  let tfoot = '<tr style="background:var(--bg-tertiary);font-weight:600;">';
+  tfoot += `<td style="${rowLabelStyle}background:var(--bg-tertiary);">期間合計</td>`;
+  // 合計行は1つのセルに統合
+  const colSpan = monthlyTotals.length;
+  tfoot += `<td colspan="${colSpan}" style="padding:8px 10px;font-size:12px;">`;
+  tfoot += `営業CF入金計: ${fmt(totals.opCashIn)}　／　`;
+  tfoot += `<span style="color:var(--red);">営業CF出金計: ${fmt(totals.opCashOut)}</span>　／　`;
+  tfoot += `<span style="${totals.opNetCF < 0 ? 'color:var(--red);' : 'color:var(--green);'}">営業CF差引計: ${fmt(totals.opNetCF)}</span>　／　`;
+  tfoot += `<span style="color:var(--purple);">投資・財務CF計: ${fmt(totals.investFinCF)}</span>　／　`;
+  tfoot += `<span style="${totals.netChange < 0 ? 'color:var(--red);' : 'color:var(--green);'}font-weight:700;">純増減合計: ${fmt(totals.netChange)}</span>`;
+  tfoot += '</td></tr>';
+  document.getElementById('cf-tfoot').innerHTML = tfoot;
 }
 
 function renderCashflowSchedule(oppForecasts) {
@@ -9664,11 +9737,10 @@ function renderCashflowSchedule(oppForecasts) {
 
 function exportCashflowCSV() {
   const { monthlyTotals } = buildCashflowData();
-  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,入金計（万円）,コスト支出（万円）,ネットCF（万円）,累積CF（万円）,状態\n';
+  let csv = '\uFEFF月,I.期首残高,II.営業CF入金,入金実績,入金予測,III.営業CF出金,IV.営業CF差引,V.投資財務CF,VI.純増減額,VII.期末残高,状態\n';
   monthlyTotals.forEach(m => {
     const status = m.isCurrent ? '当月' : (m.isPast ? '確定' : '予測');
-    const cashTotal = m.cashActual + m.cashForecast;
-    csv += `${m.label},${m.sales},${m.billing},${m.cashActual},${m.cashForecast},${cashTotal},${m.costOut},${m.netCash},${m.cumCash},${status}\n`;
+    csv += `${m.label},${m.openBal},${m.opCashIn},${m.cashActual},${m.cashForecast},${m.opCashOut},${m.opNetCF},${m.investFinCF},${m.netChange},${m.closeBal},${status}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
