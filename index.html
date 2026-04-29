@@ -1661,7 +1661,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            入金予測ルール：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に請求予定額が入金されるものとして算出
+            入金予測ルール：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に請求予定額が入金されるものとして算出　／　コスト支出：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜1月実績、以降は直近4ヶ月平均予測）
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -9004,6 +9004,64 @@ function markAsPaid(oppId, ym) {
 // ============================================================
 let cfChart = null;
 
+// ── 試算表（残高試算表）からのコストデータ ──
+// 株式会社４DIN 2025/10〜2026/02 実績 + 3月以降予測（直近4ヶ月平均ベース）
+const trialBalanceCosts = (function() {
+  const actual = {
+    '2025-10': {
+      cogs: { salary: 6880169, welfare: 1177328, telecom: 3897253, depreciation: 233193, outsource: 743872, license: 1224293 },
+      sga:  { salary: 4724170, welfare: 610716, benefits: 168887, recruit: 87823, advertising: 467177, entertainment: 885585, meeting: 176537, travel: 1725263, telecom: 172487, supplies: 41369, utilities: 3784, dues: 133333, fees: 1667870, rent: 190000, lease: 8700, insurance: 57172, tax: 26960, professional: 937300, outsource: 5192808, donation: 0, rnd: 59092, depreciation: 111250 }
+    },
+    '2025-11': {
+      cogs: { salary: 7682693, welfare: 1326637, telecom: 3487906, depreciation: 233193, outsource: 763872, license: 1224293 },
+      sga:  { salary: 4733818, welfare: 610716, benefits: 121126, recruit: 40914, advertising: 466300, entertainment: 1046183, meeting: 25416, travel: 1318875, telecom: 191267, supplies: 214514, utilities: 5420, dues: 126333, fees: 138997, rent: 190000, lease: 8700, insurance: 57172, tax: 2600, professional: 937300, outsource: 5070062, donation: 0, rnd: 0, depreciation: 111250 }
+    },
+    '2025-12': {
+      cogs: { salary: 8542157, welfare: 1389024, telecom: 3287903, depreciation: 233193, outsource: 248420, license: 1224293 },
+      sga:  { salary: 4728500, welfare: 610769, benefits: 25000, recruit: 46366, advertising: 1340910, entertainment: 1058260, meeting: 32597, travel: 1548283, telecom: 170615, supplies: 676045, utilities: 5830, dues: 340333, fees: 142015, rent: 190000, lease: 8700, insurance: 111142, tax: 33000, professional: 937300, outsource: 6330065, donation: 45000, rnd: 0, depreciation: 127537 }
+    },
+    '2026-01': {
+      cogs: { salary: 8988245, welfare: 1446261, telecom: 3410362, depreciation: 233193, outsource: 648137, license: 1224293 },
+      sga:  { salary: 5395167, welfare: 719684, benefits: 41453, recruit: 46638, advertising: 704264, entertainment: 895133, meeting: 26667, travel: 1370865, telecom: 184323, supplies: 116546, utilities: 5898, dues: 94333, fees: 143955, rent: 190000, lease: 8700, insurance: 57172, tax: 520, professional: 1032300, outsource: 5220685, donation: 0, rnd: 0, depreciation: 253871 }
+    },
+    '2026-02': {
+      cogs: { salary: 9318020, welfare: 1450219, telecom: 0, depreciation: 0, outsource: 0, license: 0 },
+      sga:  { salary: 5395167, welfare: 719684, benefits: 0, recruit: 0, advertising: 0, entertainment: 0, meeting: 0, travel: 0, telecom: 0, supplies: 0, utilities: 0, dues: 0, fees: 0, rent: 0, lease: 0, insurance: 0, tax: 0, professional: 0, outsource: 0, donation: 0, rnd: 0, depreciation: 0 }
+    }
+  };
+  function sumObj(o) { return Object.values(o).reduce((a,b)=>a+b,0); }
+  function totalMonth(m) { return sumObj(m.cogs) + sumObj(m.sga); }
+
+  // 直近4ヶ月(10〜1月)の平均をベースに3月以降を予測(2月は一部のみ実績)
+  const baseMonths = ['2025-10','2025-11','2025-12','2026-01'];
+  const avgCogs = {}, avgSga = {};
+  for(const k of Object.keys(actual['2025-10'].cogs)) {
+    avgCogs[k] = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].cogs[k], 0) / baseMonths.length);
+  }
+  for(const k of Object.keys(actual['2025-10'].sga)) {
+    avgSga[k] = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].sga[k], 0) / baseMonths.length);
+  }
+
+  return {
+    actual,
+    getMonthlyCost(ym) {
+      if(actual[ym]) {
+        const m = actual[ym];
+        const cogsTotal = sumObj(m.cogs);
+        const sgaTotal = sumObj(m.sga);
+        return { cogs: cogsTotal, sga: sgaTotal, total: cogsTotal + sgaTotal, source: 'actual', detail: m };
+      }
+      // 3月以降は平均ベースの予測
+      const cogsTotal = sumObj(avgCogs);
+      const sgaTotal = sumObj(avgSga);
+      return { cogs: cogsTotal, sga: sgaTotal, total: cogsTotal + sgaTotal, source: 'forecast', detail: { cogs: {...avgCogs}, sga: {...avgSga} } };
+    },
+    avgCogs,
+    avgSga,
+    sumObj
+  };
+})();
+
 // ── 請求予定日 → 入金予定月キー(YYYY-MM)を算出 ──
 // billingDateStr: 'YYYY-MM-DD' 形式の請求予定日
 // 戻り値: 翌月のYYYY-MMキー
@@ -9163,7 +9221,7 @@ function buildCashflowData() {
   // 月別集計用マップ
   const monthMap = {};
   months.forEach(ym => {
-    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 };
+    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0, costOut: 0, costSource: 'forecast' };
   });
 
   // 案件別の予測レコードも保持
@@ -9206,6 +9264,13 @@ function buildCashflowData() {
     });
   });
 
+  // ── 試算表コストデータを各月に反映 ──
+  months.forEach(ym => {
+    const cost = trialBalanceCosts.getMonthlyCost(ym);
+    monthMap[ym].costOut = cost.total;
+    monthMap[ym].costSource = cost.source;
+  });
+
   // monthlyTotals 配列
   let cumCash = 0;
   const monthlyTotals = months.map(ym => {
@@ -9226,7 +9291,7 @@ function buildCashflowData() {
       cashForecast = d.cashForecast;
     }
 
-    cumCash += cashActual + cashForecast;
+    cumCash += cashActual + cashForecast - d.costOut;
 
     return {
       ym,
@@ -9236,6 +9301,9 @@ function buildCashflowData() {
       billing: Math.round(d.billing * 100) / 100,
       cashActual: Math.round(cashActual * 100) / 100,
       cashForecast: Math.round(cashForecast * 100) / 100,
+      costOut: Math.round(d.costOut * 100) / 100,
+      costSource: d.costSource,
+      netCash: Math.round((cashActual + cashForecast - d.costOut) * 100) / 100,
       cumCash: Math.round(cumCash * 100) / 100,
       isPast,
       isCurrent,
@@ -9280,10 +9348,20 @@ function renderCashflow() {
       <div class="metric-value">${fmt(thisMonth.cashActual + thisMonth.cashForecast)}</div>
       <div class="metric-change neutral">実績 ${fmt(thisMonth.cashActual)} ／ 予測 ${fmt(thisMonth.cashForecast)}</div>
     </div>
+    <div class="metric-card" style="border-left:3px solid var(--purple);">
+      <div class="metric-label">当月 コスト支出</div>
+      <div class="metric-value" style="color:var(--red);">${fmt(thisMonth.costOut)}</div>
+      <div class="metric-change neutral">${thisMonth.costSource === 'actual' ? '実績' : '予測（直近平均）'}</div>
+    </div>
+    <div class="metric-card ${(thisMonth.netCash||0) >= 0 ? 'green' : 'red'}">
+      <div class="metric-label">当月 ネットCF</div>
+      <div class="metric-value">${fmt(thisMonth.netCash)}</div>
+      <div class="metric-change neutral">入金 − コスト支出</div>
+    </div>
     <div class="metric-card green">
       <div class="metric-label">翌月 入金予測</div>
       <div class="metric-value">${fmt(nextMonth.cashForecast)}</div>
-      <div class="metric-change neutral">当月の請求予定 → 翌月末入金</div>
+      <div class="metric-change neutral">翌月コスト予測 ${fmt(nextMonth.costOut)}</div>
     </div>
     <div class="metric-card amber">
       <div class="metric-label">未回収残高</div>
@@ -9328,7 +9406,7 @@ function renderCashflowChart(data) {
           data: data.map(d => d.sales),
           backgroundColor: isDark ? 'rgba(56,138,221,0.45)' : 'rgba(24,95,165,0.35)',
           borderRadius: 3,
-          order: 4,
+          order: 5,
           barPercentage: 0.7,
         },
         {
@@ -9336,7 +9414,7 @@ function renderCashflowChart(data) {
           data: data.map(d => d.billing),
           backgroundColor: isDark ? 'rgba(29,158,117,0.45)' : 'rgba(29,158,117,0.35)',
           borderRadius: 3,
-          order: 3,
+          order: 4,
           barPercentage: 0.7,
         },
         {
@@ -9344,7 +9422,7 @@ function renderCashflowChart(data) {
           data: data.map(d => d.cashActual),
           backgroundColor: isDark ? 'rgba(239,159,39,0.7)' : 'rgba(186,117,23,0.55)',
           borderRadius: 3,
-          order: 2,
+          order: 3,
           barPercentage: 0.7,
         },
         {
@@ -9354,6 +9432,16 @@ function renderCashflowChart(data) {
           borderColor: isDark ? 'rgba(239,159,39,0.6)' : 'rgba(186,117,23,0.45)',
           borderWidth: 1,
           borderDash: [4, 2],
+          borderRadius: 3,
+          order: 2,
+          barPercentage: 0.7,
+        },
+        {
+          label: 'コスト支出',
+          data: data.map(d => -d.costOut),
+          backgroundColor: isDark ? 'rgba(226,75,74,0.4)' : 'rgba(226,75,74,0.25)',
+          borderColor: isDark ? 'rgba(226,75,74,0.7)' : 'rgba(226,75,74,0.5)',
+          borderWidth: 1,
           borderRadius: 3,
           order: 1,
           barPercentage: 0.7,
@@ -9443,6 +9531,8 @@ function renderCashflowTable(monthlyTotals) {
   thead += '<th style="padding:8px 10px;text-align:right;">入金実績</th>';
   thead += '<th style="padding:8px 10px;text-align:right;">入金予測</th>';
   thead += '<th style="padding:8px 10px;text-align:right;">入金計</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;color:var(--red);">コスト支出</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;font-weight:700;">ネットCF</th>';
   thead += '<th style="padding:8px 10px;text-align:right;">累積CF</th>';
   thead += '<th style="padding:8px 10px;text-align:center;">状態</th></tr>';
   document.getElementById('cf-thead').innerHTML = thead;
@@ -9453,7 +9543,9 @@ function renderCashflowTable(monthlyTotals) {
     const cashTotal = m.cashActual + m.cashForecast;
     const bgStyle = m.isCurrent ? 'background:var(--accent-light);' : '';
     const cfColor = m.cumCash < 0 ? 'color:var(--red);font-weight:600;' : '';
+    const netColor = m.netCash < 0 ? 'color:var(--red);font-weight:600;' : 'color:var(--green);font-weight:600;';
     const stickyBg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-primary)';
+    const costStyle = m.costSource === 'forecast' ? 'font-style:italic;' : '';
 
     let statusBadge = '';
     if(m.isCurrent) statusBadge = '<span class="badge badge-blue">当月</span>';
@@ -9468,6 +9560,8 @@ function renderCashflowTable(monthlyTotals) {
     html += `<td style="padding:8px 10px;text-align:right;">${m.cashActual ? fmt(m.cashActual) : dash}</td>`;
     html += `<td style="padding:8px 10px;text-align:right;${isFuture||m.isCurrent ? 'font-style:italic;color:var(--amber);' : ''}">${m.cashForecast ? fmt(m.cashForecast) : dash}</td>`;
     html += `<td style="padding:8px 10px;text-align:right;font-weight:500;">${cashTotal ? fmt(cashTotal) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;color:var(--red);${costStyle}">${m.costOut ? fmt(m.costOut) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;${netColor}">${fmt(m.netCash)}</td>`;
     html += `<td style="padding:8px 10px;text-align:right;font-weight:600;${cfColor}">${fmt(m.cumCash)}</td>`;
     html += `<td style="padding:8px 10px;text-align:center;">${statusBadge}</td>`;
     html += '</tr>';
@@ -9478,8 +9572,9 @@ function renderCashflowTable(monthlyTotals) {
   const totals = monthlyTotals.reduce((acc, m) => {
     acc.sales += m.sales; acc.billing += m.billing;
     acc.cashActual += m.cashActual; acc.cashForecast += m.cashForecast;
+    acc.costOut += m.costOut; acc.netCash += m.netCash;
     return acc;
-  }, { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 });
+  }, { sales: 0, billing: 0, cashActual: 0, cashForecast: 0, costOut: 0, netCash: 0 });
 
   document.getElementById('cf-tfoot').innerHTML = `
     <tr>
@@ -9489,6 +9584,8 @@ function renderCashflowTable(monthlyTotals) {
       <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual)}</td>
       <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--amber);">${fmt(totals.cashForecast)}</td>
       <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual + totals.cashForecast)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--red);">${fmt(totals.costOut)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;${totals.netCash < 0 ? 'color:var(--red);' : 'color:var(--green);'}">${fmt(totals.netCash)}</td>
       <td style="padding:8px 10px;"></td>
       <td style="padding:8px 10px;"></td>
     </tr>
@@ -9567,11 +9664,11 @@ function renderCashflowSchedule(oppForecasts) {
 
 function exportCashflowCSV() {
   const { monthlyTotals } = buildCashflowData();
-  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,入金計（万円）,累積CF（万円）,状態\n';
+  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,入金計（万円）,コスト支出（万円）,ネットCF（万円）,累積CF（万円）,状態\n';
   monthlyTotals.forEach(m => {
     const status = m.isCurrent ? '当月' : (m.isPast ? '確定' : '予測');
     const cashTotal = m.cashActual + m.cashForecast;
-    csv += `${m.label},${m.sales},${m.billing},${m.cashActual},${m.cashForecast},${cashTotal},${m.cumCash},${status}\n`;
+    csv += `${m.label},${m.sales},${m.billing},${m.cashActual},${m.cashForecast},${cashTotal},${m.costOut},${m.netCash},${m.cumCash},${status}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
