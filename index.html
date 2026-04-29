@@ -1173,6 +1173,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
       入金管理
     </div>
+    <div class="nav-item" data-page="cashflow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      キャッシュフロー予測
+    </div>
     <div class="nav-item" data-page="reports">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       分析・レポート
@@ -1625,6 +1629,90 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
       </div>
 
+      <!-- CASHFLOW FORECAST -->
+      <div class="page" id="page-cashflow">
+        <!-- メトリクス -->
+        <div class="metric-grid" id="cf-metrics" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));"></div>
+
+        <!-- コントロール行 -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+            <span class="card-title">キャッシュフロー予測</span>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+                予測期間
+                <select class="form-control" id="cf-range" style="width:100px;height:32px;font-size:12px;" onchange="renderCashflow()">
+                  <option value="6">6ヶ月</option>
+                  <option value="9">9ヶ月</option>
+                  <option value="12" selected>12ヶ月</option>
+                </select>
+              </label>
+              <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+                表示対象
+                <select class="form-control" id="cf-status-filter" style="width:140px;height:32px;font-size:12px;" onchange="renderCashflow()">
+                  <option value="">受注済のみ</option>
+                  <option value="pipeline">パイプライン含む（加重）</option>
+                </select>
+              </label>
+              <button class="btn btn-sm" onclick="exportCashflowCSV()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                CSV出力
+              </button>
+            </div>
+          </div>
+          <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
+            入金予測ルール：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に請求予定額が入金されるものとして算出
+          </div>
+          <div class="card-body" style="padding:16px 18px;">
+            <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- 月別内訳テーブル -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">月別キャッシュフロー内訳</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflow()">
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead id="cf-thead"></thead>
+              <tbody id="cf-tbody"></tbody>
+              <tfoot id="cf-tfoot"></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- 案件別入金予定 -->
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header">
+            <span class="card-title">案件別 入金予定スケジュール</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr>
+                  <th style="padding:8px;text-align:left;min-width:160px;">案件名</th>
+                  <th style="padding:8px;text-align:left;">顧客</th>
+                  <th style="padding:8px;text-align:center;">計上方式</th>
+                  <th style="padding:8px;text-align:right;">契約総額</th>
+                  <th style="padding:8px;text-align:right;">請求済</th>
+                  <th style="padding:8px;text-align:right;">入金済</th>
+                  <th style="padding:8px;text-align:right;">未回収</th>
+                  <th style="padding:8px;text-align:center;">次回請求予定月</th>
+                  <th style="padding:8px;text-align:center;">入金予定月</th>
+                  <th style="padding:8px;text-align:right;">入金予定額</th>
+                  <th style="padding:8px;text-align:center;">ステータス</th>
+                </tr>
+              </thead>
+              <tbody id="cf-schedule-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- REPORTS -->
       <div class="page" id="page-reports">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:0;">
@@ -1635,7 +1723,6 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             <div class="tab" onclick="switchReportTab(this,'rep-customer')">顧客別分析</div>
             <div class="tab" onclick="switchReportTab(this,'rep-trend')">月次推移</div>
             <div class="tab" onclick="switchReportTab(this,'rep-landing')">着地予測</div>
-            <div class="tab" onclick="switchReportTab(this,'rep-cashflow')">CF予測</div>
             <div class="tab" onclick="switchReportTab(this,'rep-history')">過去月参照</div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;padding:6px 0;white-space:nowrap;flex-shrink:0;">
@@ -1791,69 +1878,6 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
               <th class="text-right">残余計上</th><th class="text-right">加重額</th>
               <th>担当</th>
             </tr></thead><tbody id="landing-tbody"></tbody></table></div>
-          </div>
-        </div>
-
-        <!-- キャッシュフロー予測 -->
-        <div id="rep-cashflow" style="display:none;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-            <select class="form-control" style="width:180px;height:34px;font-size:13px;" id="cf-fy" onchange="renderCashFlowForecast()">
-              <option value="fy25">FY2025（24/10〜25/09）</option>
-              <option value="fy26">FY2026（25/10〜26/09）</option>
-              <option value="fy27">FY2027（26/10〜27/09）</option>
-              <option value="fy28">FY2028（27/10〜28/09）</option>
-            </select>
-            <span class="badge badge-gray" style="font-size:11px;">試算表コスト反映済</span>
-          </div>
-          <div class="metric-grid" id="cf-metrics"></div>
-
-          <!-- CF推移チャート -->
-          <div class="card" style="margin-bottom:18px;">
-            <div class="card-header"><span class="card-title">キャッシュフロー月次推移</span></div>
-            <div class="card-body"><div class="chart-wrap" style="height:300px;"><canvas id="chartCashFlow"></canvas></div></div>
-          </div>
-
-          <!-- コスト内訳 -->
-          <div class="grid-2" style="margin-bottom:18px;">
-            <div class="card">
-              <div class="card-header"><span class="card-title">売上原価 内訳（試算表）</span></div>
-              <div class="card-body"><div class="chart-wrap" style="height:240px;"><canvas id="chartCogBreakdown"></canvas></div></div>
-            </div>
-            <div class="card">
-              <div class="card-header"><span class="card-title">販管費 内訳（試算表）</span></div>
-              <div class="card-body"><div class="chart-wrap" style="height:240px;"><canvas id="chartSgaBreakdown"></canvas></div></div>
-            </div>
-          </div>
-
-          <!-- 月次CF明細テーブル -->
-          <div class="card">
-            <div class="card-header"><span class="card-title">月次キャッシュフロー明細</span></div>
-            <div class="table-wrap">
-              <table style="min-width:900px;">
-                <thead><tr>
-                  <th>月</th>
-                  <th class="text-right">入金（実績/予測）</th>
-                  <th class="text-right">売上原価</th>
-                  <th class="text-right">販管費</th>
-                  <th class="text-right">営業外費用</th>
-                  <th class="text-right">総コスト</th>
-                  <th class="text-right">営業CF</th>
-                  <th class="text-right">累計CF</th>
-                  <th>状態</th>
-                </tr></thead>
-                <tbody id="cf-detail-tbody"></tbody>
-                <tfoot><tr>
-                  <td class="fw-500">合計</td>
-                  <td class="text-right fw-500" id="cf-total-cash">—</td>
-                  <td class="text-right fw-500" id="cf-total-cogs">—</td>
-                  <td class="text-right fw-500" id="cf-total-sga">—</td>
-                  <td class="text-right fw-500" id="cf-total-nonop">—</td>
-                  <td class="text-right fw-500" id="cf-total-cost">—</td>
-                  <td class="text-right fw-500" id="cf-total-opcf">—</td>
-                  <td></td><td></td>
-                </tr></tfoot>
-              </table>
-            </div>
           </div>
         </div>
 
@@ -3200,7 +3224,7 @@ function resetData() {
 // ============================================================
 // NAVIGATION
 // ============================================================
-const PAGE_TITLES = {dashboard:'ダッシュボード', leads:'リード管理', opportunities:'案件管理', monthly:'月次管理', reports:'分析・レポート', alerts:'アラート', master:'マスタ管理'};
+const PAGE_TITLES = {dashboard:'ダッシュボード', leads:'リード管理', opportunities:'案件管理', monthly:'月次管理', payment:'入金管理', cashflow:'キャッシュフロー予測', reports:'分析・レポート', alerts:'アラート', master:'マスタ管理'};
 
 // ============================================================
 // 現在表示中のページを再描画する共通関数
@@ -3216,6 +3240,7 @@ function refreshCurrentPage() {
     case 'reports':       renderReports();       break;
     case 'alerts':        renderAlerts();        break;
     case 'payment':       renderPayment();       break;
+    case 'cashflow':      renderCashflow();      break;
     case 'master':        renderMaster();        break;
   }
   updateAlertBadge();
@@ -3228,6 +3253,7 @@ const GLOBAL_SEARCH_CONFIG = {
   monthly:       { placeholder: '案件名・顧客で絞り込み', targetId: 'monthly-search' },
   alerts:        { placeholder: 'アラートを検索',       targetId: 'alert-search' },
   payment:       { placeholder: '顧客・案件名検索',      targetId: 'payment-search' },
+  cashflow:      { placeholder: '案件名・顧客で検索',    targetId: 'cf-search' },
   reports:       { placeholder: '顧客名で検索',          targetId: 'customer-search' },
 };
 
@@ -3256,6 +3282,14 @@ function onGlobalSearch(val) {
 const _searchState = {};
 
 function navigate(page) {
+  // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみアクセス可
+  if(page === 'cashflow' && currentUser) {
+    const canCF = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
+    if(!canCF) {
+      toast('キャッシュフロー予測は管理部のみ閲覧可能です', 'error');
+      return;
+    }
+  }
   // 離れる前に現在ページの検索値を保存
   const prevPage = document.querySelector('.nav-item.active')?.dataset?.page;
   if(prevPage) {
@@ -3298,6 +3332,7 @@ function navigate(page) {
   else if(page === 'reports') renderReports();
   else if(page === 'alerts')  renderAlerts();
   else if(page === 'payment') renderPayment();
+  else if(page === 'cashflow') renderCashflow();
   else if(page === 'master')  renderMaster();
   updateAlertBadge();
 }
@@ -7502,7 +7537,6 @@ function renderReports() {
     else if(tabId==='rep-customer') renderCustomerReport();
     else if(tabId==='rep-trend')    renderTrendChart();
     else if(tabId==='rep-landing')  renderLandingReport();
-    else if(tabId==='rep-cashflow') renderCashFlowForecast();
     else if(tabId==='rep-history')  initHistoryTab();
   } else {
     renderKpiMetrics(); renderDeptChart(); renderRepChart();
@@ -7707,7 +7741,6 @@ function refreshCurrentReportTab() {
     case 'rep-customer': renderCustomerReport(); break;
     case 'rep-trend':    renderTrendChart(); break;
     case 'rep-landing':  renderLandingReport(); break;
-    case 'rep-cashflow': renderCashFlowForecast(); break;
     case 'rep-history':  initHistoryTab(); break;
   }
 }
@@ -7719,7 +7752,7 @@ function switchReportTab(el, tabId) {
   el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   initReportMonthSel();
-  ['rep-kpi','rep-segment','rep-owner','rep-customer','rep-trend','rep-landing','rep-cashflow','rep-history'].forEach(id=>{
+  ['rep-kpi','rep-segment','rep-owner','rep-customer','rep-trend','rep-landing','rep-history'].forEach(id=>{
     const d = document.getElementById(id);
     if(d) d.style.display = id===tabId ? 'block' : 'none';
   });
@@ -7729,7 +7762,6 @@ function switchReportTab(el, tabId) {
   if(tabId==='rep-customer') renderCustomerReport();
   if(tabId==='rep-trend')    renderTrendChart();
   if(tabId==='rep-landing')  renderLandingReport();
-  if(tabId==='rep-cashflow') renderCashFlowForecast();
   if(tabId==='rep-history')  initHistoryTab();
 }
 
@@ -8225,267 +8257,6 @@ function renderOwnerTable() {
 }
 
 // ============================================================
-// ============================================================
-// キャッシュフロー予測 — 試算表コスト反映
-// ============================================================
-// 株式会社4DIN 残高試算表（FY2025: 2025/10〜2026/09）月次コストデータ（円）
-const TRIAL_BALANCE = {
-  months: ['2025-10','2025-11','2025-12','2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07','2026-08','2026-09'],
-  // 売上原価 内訳
-  cogs: {
-    '給与（売上原価）':       [6880169,7682693,8542157,8988245,9318020,0,0,0,0,0,0,0],
-    '法定福利費（売上原価）': [1177328,1326637,1389024,1446261,1450219,0,0,0,0,0,0,0],
-    '通信費（売上原価）':     [3897253,3487906,3287903,3410362,0,0,0,0,0,0,0,0],
-    '減価償却費（売上原価）': [233193,233193,233193,233193,0,0,0,0,0,0,0,0],
-    '業務委託費（売上原価）': [743872,763872,248420,648137,0,0,0,0,0,0,0,0],
-    'ライセンス料（売上原価）':[1224293,1224293,1224293,1224293,0,0,0,0,0,0,0,0],
-  },
-  // 販管費 内訳
-  sga: {
-    '給料手当':           [4724170,4733818,4728500,5395167,5395167,0,0,0,0,0,0,0],
-    '法定福利費':         [610716,610716,610769,719684,719684,0,0,0,0,0,0,0],
-    '福利厚生費':         [168887,121126,25000,41453,0,0,0,0,0,0,0,0],
-    '採用教育費':         [87823,40914,46366,46638,0,0,0,0,0,0,0,0],
-    '広告宣伝費':         [467177,466300,1340910,704264,0,0,0,0,0,0,0,0],
-    '接待交際費':         [885585,1046183,1058260,895133,0,0,0,0,0,0,0,0],
-    '会議費':             [176537,25416,32597,26667,0,0,0,0,0,0,0,0],
-    '旅費交通費':         [1725263,1318875,1548283,1370865,0,0,0,0,0,0,0,0],
-    '通信費':             [172487,191267,170615,184323,0,0,0,0,0,0,0,0],
-    '消耗品費':           [41369,214514,676045,116546,0,0,0,0,0,0,0,0],
-    '諸会費':             [133333,126333,340333,94333,0,0,0,0,0,0,0,0],
-    '支払手数料':         [1667870,138997,142015,143955,0,0,0,0,0,0,0,0],
-    '地代家賃':           [190000,190000,190000,190000,0,0,0,0,0,0,0,0],
-    '賃借料':             [8700,8700,8700,8700,0,0,0,0,0,0,0,0],
-    '保険料':             [57172,57172,111142,57172,0,0,0,0,0,0,0,0],
-    '租税公課':           [26960,2600,33000,520,0,0,0,0,0,0,0,0],
-    '専門家報酬料':       [937300,937300,937300,1032300,0,0,0,0,0,0,0,0],
-    '業務委託報酬料':     [5192808,5070062,6330065,5220685,0,0,0,0,0,0,0,0],
-    '減価償却費':         [111250,111250,127537,253871,0,0,0,0,0,0,0,0],
-    '水道光熱費':         [3784,5420,5830,5898,0,0,0,0,0,0,0,0],
-    '研究開発費':         [59092,0,0,0,0,0,0,0,0,0,0,0],
-    '寄付金':             [0,0,45000,0,0,0,0,0,0,0,0,0],
-  },
-  // 営業外費用
-  nonOp: {
-    '支払利息': [74235,41096,78712,71463,38356,42466,41096,42466,41096,42466,42466,41096],
-  },
-  // 売上高（参考）
-  sales: [12172949,12104449,17006654,14792784,4311187,0,0,0,0,0,0,0],
-};
-
-function renderCashFlowForecast() {
-  const fyCode = document.getElementById('cf-fy')?.value || 'fy25';
-  const {start,end} = FY_RANGES[fyCode] || FY_RANGES.fy25;
-  const msr = db.monthlySummary||{};
-  const tb = TRIAL_BALANCE;
-
-  // 月リスト生成
-  const allMonths = [];
-  { let [sy,sm] = start.split('-').map(Number);
-    const [ey,em] = end.split('-').map(Number);
-    while(sy<ey||(sy===ey&&sm<=em)){ allMonths.push(`${sy}-${String(sm).padStart(2,'0')}`); sm++; if(sm>12){sm=1;sy++;} }
-  }
-
-  // 試算表月→インデックスマップ
-  const tbIdx = {};
-  tb.months.forEach((m,i)=>tbIdx[m]=i);
-
-  // コスト合計関数
-  function sumCat(cat, mi) { return Object.values(cat).reduce((s,arr)=>s+(arr[mi]||0),0); }
-
-  // 実績月判定（試算表にデータがあるか）
-  function hasActual(ym) {
-    const i = tbIdx[ym];
-    if(i===undefined) return false;
-    return sumCat(tb.cogs,i)>0 || sumCat(tb.sga,i)>0;
-  }
-
-  // 実績月の平均コストを計算（未来月の予測に使用）
-  const actualMonths = allMonths.filter(hasActual);
-  let avgCogs=0, avgSga=0, avgNonOp=0;
-  if(actualMonths.length>0) {
-    const last = actualMonths.slice(-3); // 直近3ヶ月平均
-    last.forEach(ym=>{
-      const i=tbIdx[ym];
-      avgCogs+=sumCat(tb.cogs,i);
-      avgSga+=sumCat(tb.sga,i);
-      avgNonOp+=sumCat(tb.nonOp,i);
-    });
-    avgCogs=Math.round(avgCogs/last.length);
-    avgSga=Math.round(avgSga/last.length);
-    avgNonOp=Math.round(avgNonOp/last.length);
-  }
-
-  // 月別データ構築
-  const rows = [];
-  let cumCF = 0, totCash=0, totCogs=0, totSga=0, totNonOp=0, totCost=0, totOpCF=0;
-
-  allMonths.forEach(ym => {
-    const isAct = hasActual(ym);
-    const i = tbIdx[ym];
-
-    // 入金（CRMデータ）
-    let cashIn = 0;
-    if(msr[ym]) {
-      cashIn = msr[ym].cashTotal || 0;
-    } else {
-      // CRM monthly から集計
-      const md = db.monthly[ym]||{};
-      Object.values(md).forEach(v=>{ cashIn += v.cash||0; });
-    }
-    // 入金が万単位か円単位か判定（CRMは万単位）
-    // 試算表は円単位 → CRMの入金を円に換算して比較
-    const cashInYen = cashIn * 10000; // CRM万→円
-
-    // コスト
-    let cogs, sga, nonOp;
-    if(isAct && i!==undefined) {
-      cogs  = sumCat(tb.cogs, i);
-      sga   = sumCat(tb.sga, i);
-      nonOp = sumCat(tb.nonOp, i);
-    } else {
-      // 予測：直近平均
-      cogs  = avgCogs;
-      sga   = avgSga;
-      nonOp = avgNonOp;
-    }
-
-    const totalCost = cogs + sga + nonOp;
-    const opCF = cashInYen - totalCost;
-    cumCF += opCF;
-
-    totCash+=cashInYen; totCogs+=cogs; totSga+=sga; totNonOp+=nonOp; totCost+=totalCost; totOpCF+=opCF;
-
-    rows.push({ ym, isAct, cashInYen, cogs, sga, nonOp, totalCost, opCF, cumCF });
-  });
-
-  // 万円変換ヘルパー
-  const fmtY = v => '¥'+(v/10000).toLocaleString(undefined,{maximumFractionDigits:0})+'万';
-  const fmtYs = v => (v>=0?'+':'')+fmtY(v);
-
-  // KPIメトリクス
-  const cumCFfinal = rows.length>0 ? rows[rows.length-1].cumCF : 0;
-  const burnRate = actualMonths.length>0 ? Math.round((avgCogs+avgSga+avgNonOp)/10000) : 0;
-  document.getElementById('cf-metrics').innerHTML = `
-    <div class="metric-card ${totOpCF>=0?'green':'red'}"><div class="metric-label">営業CF（年間）</div><div class="metric-value">${fmtY(totOpCF)}</div><div class="metric-change neutral">入金−総コスト</div></div>
-    <div class="metric-card blue"><div class="metric-label">総入金</div><div class="metric-value">${fmtY(totCash)}</div><div class="metric-change neutral">CRM入金実績+予測</div></div>
-    <div class="metric-card amber"><div class="metric-label">総コスト</div><div class="metric-value">${fmtY(totCost)}</div><div class="metric-change neutral">原価+販管費+営業外</div></div>
-    <div class="metric-card purple"><div class="metric-label">月次バーンレート</div><div class="metric-value">¥${burnRate.toLocaleString()}万</div><div class="metric-change neutral">直近3ヶ月平均</div></div>
-  `;
-
-  // チャート
-  destroyChart('chartCashFlow');
-  const elCF = document.getElementById('chartCashFlow');
-  if(elCF) {
-    const labels = rows.map(r=>{const[y,m]=r.ym.split('-');return y.slice(2)+'/'+parseInt(m);});
-    charts.chartCashFlow = new Chart(elCF, {
-      type:'bar',
-      data:{
-        labels,
-        datasets:[
-          {label:'入金',   data:rows.map(r=>Math.round(r.cashInYen/10000)), backgroundColor:'rgba(29,158,117,0.6)', borderRadius:4, order:2},
-          {label:'総コスト', data:rows.map(r=>-Math.round(r.totalCost/10000)), backgroundColor:'rgba(226,75,74,0.5)', borderRadius:4, order:2},
-          {label:'累計CF', data:rows.map(r=>Math.round(r.cumCF/10000)), type:'line', borderColor:'#185FA5', borderWidth:2.5, pointRadius:3, tension:0.3, fill:false, order:1, yAxisID:'y'},
-        ]
-      },
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{
-          legend:{position:'top',labels:{font:{size:10},boxWidth:12}},
-          tooltip:{callbacks:{label:ctx=>{
-            const v=ctx.parsed.y;
-            return ctx.dataset.label+' ¥'+(v>=0?'':'-')+Math.abs(v).toLocaleString()+'万';
-          }}}
-        },
-        scales:{
-          x:{stacked:false,ticks:{font:{size:10}},grid:{display:false}},
-          y:{ticks:{callback:v=>'¥'+v+'万',font:{size:9},maxTicksLimit:6},grid:{color:'rgba(0,0,0,0.04)'}}
-        }
-      }
-    });
-  }
-
-  // 売上原価内訳ドーナツ
-  destroyChart('chartCogBreakdown');
-  const cogTotals = {};
-  Object.entries(tb.cogs).forEach(([k,arr])=>{
-    const tot = actualMonths.reduce((s,ym)=>{ const i=tbIdx[ym]; return s+(i!==undefined?arr[i]:0);},0);
-    if(tot>0) cogTotals[k.replace(/（売上原価）/,'')]=tot;
-  });
-  const elCog = document.getElementById('chartCogBreakdown');
-  if(elCog && Object.keys(cogTotals).length>0) {
-    const cogColors = ['#185FA5','#1D9E75','#534AB7','#BA7517','#E24B4A','#888780'];
-    charts.chartCogBreakdown = new Chart(elCog, {
-      type:'doughnut',
-      data:{
-        labels:Object.keys(cogTotals),
-        datasets:[{data:Object.values(cogTotals).map(v=>Math.round(v/10000)),backgroundColor:cogColors.slice(0,Object.keys(cogTotals).length)}]
-      },
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{position:'right',labels:{font:{size:10},boxWidth:10}},
-          tooltip:{callbacks:{label:ctx=>ctx.label+' ¥'+ctx.parsed.toLocaleString()+'万'}}
-        }
-      }
-    });
-  }
-
-  // 販管費内訳ドーナツ（上位8項目）
-  destroyChart('chartSgaBreakdown');
-  const sgaTotals = {};
-  Object.entries(tb.sga).forEach(([k,arr])=>{
-    const tot = actualMonths.reduce((s,ym)=>{ const i=tbIdx[ym]; return s+(i!==undefined?arr[i]:0);},0);
-    if(tot>0) sgaTotals[k]=tot;
-  });
-  const sgaSorted = Object.entries(sgaTotals).sort((a,b)=>b[1]-a[1]);
-  const sgaTop = sgaSorted.slice(0,8);
-  const sgaOther = sgaSorted.slice(8).reduce((s,e)=>s+e[1],0);
-  if(sgaOther>0) sgaTop.push(['その他',sgaOther]);
-  const elSga = document.getElementById('chartSgaBreakdown');
-  if(elSga && sgaTop.length>0) {
-    const sgaColors = ['#185FA5','#1D9E75','#534AB7','#BA7517','#E24B4A','#D35400','#2C3E50','#16A085','#888780'];
-    charts.chartSgaBreakdown = new Chart(elSga, {
-      type:'doughnut',
-      data:{
-        labels:sgaTop.map(e=>e[0]),
-        datasets:[{data:sgaTop.map(e=>Math.round(e[1]/10000)),backgroundColor:sgaColors.slice(0,sgaTop.length)}]
-      },
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{position:'right',labels:{font:{size:10},boxWidth:10}},
-          tooltip:{callbacks:{label:ctx=>ctx.label+' ¥'+ctx.parsed.toLocaleString()+'万'}}
-        }
-      }
-    });
-  }
-
-  // 明細テーブル
-  document.getElementById('cf-detail-tbody').innerHTML = rows.map(r=>{
-    const [y,m] = r.ym.split('-');
-    const label = `${y}年${parseInt(m)}月`;
-    const badge = r.isAct
-      ? '<span class="badge badge-green">実績</span>'
-      : '<span class="badge badge-amber">予測</span>';
-    const cfCls = r.opCF >= 0 ? 'text-green' : 'text-red';
-    const cumCls = r.cumCF >= 0 ? 'text-green' : 'text-red';
-    return `<tr>
-      <td style="font-size:12px;font-weight:500;">${label}</td>
-      <td class="text-right">${fmtY(r.cashInYen)}</td>
-      <td class="text-right" style="color:var(--text-muted);">${fmtY(r.cogs)}</td>
-      <td class="text-right" style="color:var(--text-muted);">${fmtY(r.sga)}</td>
-      <td class="text-right" style="color:var(--text-muted);">${fmtY(r.nonOp)}</td>
-      <td class="text-right fw-500">${fmtY(r.totalCost)}</td>
-      <td class="text-right fw-500 ${cfCls}">${fmtYs(r.opCF)}</td>
-      <td class="text-right fw-500 ${cumCls}">${fmtYs(r.cumCF)}</td>
-      <td>${badge}</td>
-    </tr>`;
-  }).join('');
-
-  document.getElementById('cf-total-cash').textContent = fmtY(totCash);
-  document.getElementById('cf-total-cogs').textContent = fmtY(totCogs);
-  document.getElementById('cf-total-sga').textContent = fmtY(totSga);
-  document.getElementById('cf-total-nonop').textContent = fmtY(totNonOp);
-  document.getElementById('cf-total-cost').textContent = fmtY(totCost);
-  document.getElementById('cf-total-opcf').textContent = fmtYs(totOpCF);
-}
-
 // 着地予測
 // ============================================================
 function renderLandingReport() {
@@ -9224,6 +8995,590 @@ function markAsPaid(oppId, ym) {
   save();
   toast('入金済にしました', 'success');
   renderPayment();
+}
+
+// ============================================================
+// キャッシュフロー予測
+// ============================================================
+// ルール: 請求予定日の翌月最終営業日に請求予定額が入金されるものとする
+// ============================================================
+let cfChart = null;
+
+// ── 請求予定日 → 入金予定月キー(YYYY-MM)を算出 ──
+// billingDateStr: 'YYYY-MM-DD' 形式の請求予定日
+// 戻り値: 翌月のYYYY-MMキー
+function billingDateToPaymentYm(billingDateStr) {
+  if(!billingDateStr) return '';
+  const d = new Date(billingDateStr);
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-indexed
+  // 翌月
+  const pm = m + 1;
+  if(pm > 11) return (y + 1) + '-01';
+  return y + '-' + String(pm + 1).padStart(2, '0');
+}
+
+// ── 月キー → その月の最終営業日(YYYY-MM-DD) ──
+function lastBizDayOfMonth(ymKey) {
+  const [y, m] = ymKey.split('-').map(Number);
+  const lastDay = new Date(y, m, 0); // m月の末日
+  const dow = lastDay.getDay();
+  if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
+  else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+  return lastDay.toISOString().split('T')[0];
+}
+
+// ── 案件ごとに全月の請求予定と入金予定を構築 ──
+function buildOppBillingForecast(opp, forecastEndYm) {
+  const records = []; // [{billingYm, billingDate, billingAmt, paymentYm, paymentDate, source}]
+  const oppId = opp.id;
+
+  // (1) 既に db.monthly に請求データがある月（実績＋手入力済み）
+  const existingBillingYms = new Set();
+  Object.keys(db.monthly).sort().forEach(ym => {
+    const m = db.monthly[ym]?.[oppId];
+    if(!m) return;
+    const bAmt = m.billing || 0;
+    if(bAmt <= 0) return;
+    existingBillingYms.add(ym);
+
+    // 請求日: m.billingDate → 月末フォールバック
+    const billingDate = m.billingDate || lastBizDayOfMonth(ym);
+    // 入金予定月: 請求日の翌月
+    const paymentYm = billingDateToPaymentYm(billingDate);
+    // 入金予定日: 翌月最終営業日
+    const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+    // 入金実績
+    const cashAmt = m.cash || 0;
+
+    records.push({
+      billingYm: ym,
+      billingDate,
+      billingAmt: bAmt,
+      paymentYm,
+      paymentDate,
+      cashAmt,
+      source: 'actual',
+    });
+  });
+
+  // (2) 将来月の請求予測（まだ db.monthly にないもの）
+  if(opp.recog === '月額按分' && opp.start && opp.end) {
+    // 月額按分: 契約期間の各月に均等請求
+    const startYm = opp.start.slice(0, 7);
+    const endYm   = opp.end.slice(0, 7);
+    const totalMonths = monthsBetween(startYm, endYm) + 1;
+    if(totalMonths > 0) {
+      const monthlyAmt = Math.round((opp.amount / totalMonths) * 10000) / 10000;
+      let ym = startYm;
+      for(let i = 0; i < totalMonths && ym <= forecastEndYm; i++) {
+        if(!existingBillingYms.has(ym) && ym > currentMonth) {
+          const billingDate = lastBizDayOfMonth(ym);
+          const paymentYm = billingDateToPaymentYm(billingDate);
+          const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+          records.push({
+            billingYm: ym,
+            billingDate,
+            billingAmt: monthlyAmt,
+            paymentYm,
+            paymentDate,
+            cashAmt: 0,
+            source: 'forecast',
+          });
+        }
+        ym = nextMonthKey(ym);
+      }
+    }
+  } else if(opp.recog === '進行基準') {
+    // 進行基準: db.monthly のスケジュール(sales)から未請求月を予測
+    const allYms = Object.keys(db.monthly).sort();
+    allYms.forEach(ym => {
+      if(ym <= currentMonth) return;
+      if(ym > forecastEndYm) return;
+      if(existingBillingYms.has(ym)) return;
+      const m = db.monthly[ym]?.[oppId];
+      if(!m || (m.sales || 0) <= 0) return;
+      const salesAmt = m.sales;
+      const billingDate = lastBizDayOfMonth(ym);
+      const paymentYm = billingDateToPaymentYm(billingDate);
+      const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+      records.push({
+        billingYm: ym,
+        billingDate,
+        billingAmt: salesAmt,
+        paymentYm,
+        paymentDate,
+        cashAmt: 0,
+        source: 'forecast',
+      });
+    });
+  } else if(opp.recog === '一括計上' || opp.recog === '検収基準') {
+    // 一括/検収: まだ一度も請求がなければ、billingDate月に全額請求を予測
+    if(existingBillingYms.size === 0 && opp.amount > 0) {
+      const bDateStr = opp.billingDate || opp.start || '';
+      if(bDateStr) {
+        const billingYm = bDateStr.slice(0, 7);
+        if(billingYm > currentMonth && billingYm <= forecastEndYm) {
+          const billingDate = opp.billingDate || lastBizDayOfMonth(billingYm);
+          const paymentYm = billingDateToPaymentYm(billingDate);
+          const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+          records.push({
+            billingYm,
+            billingDate,
+            billingAmt: opp.amount,
+            paymentYm,
+            paymentDate,
+            cashAmt: 0,
+            source: 'forecast',
+          });
+        }
+      }
+    }
+  }
+
+  return records;
+}
+
+function buildCashflowData() {
+  const rangeMonths = parseInt(document.getElementById('cf-range')?.value || '12');
+  const statusFilter = document.getElementById('cf-status-filter')?.value || '';
+
+  // 表示対象月リスト: 過去3ヶ月 ～ 当月 ～ 未来N月
+  const months = [];
+  for(let i = -3; i <= rangeMonths; i++) {
+    months.push(addMonthKey(currentMonth, i));
+  }
+  const forecastEndYm = months[months.length - 1];
+
+  // 対象案件
+  const opps = db.opportunities.filter(o => {
+    if(!matchesScope(o)) return false;
+    if(statusFilter === 'pipeline') return !['失注'].includes(o.stage);
+    return o.stage === '受注';
+  });
+
+  // パイプラインの場合、確度で加重する
+  const useProbWeight = statusFilter === 'pipeline';
+
+  // 月別集計用マップ
+  const monthMap = {};
+  months.forEach(ym => {
+    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 };
+  });
+
+  // 案件別の予測レコードも保持
+  const oppForecasts = [];
+
+  opps.forEach(o => {
+    const weight = useProbWeight ? ((o.prob || 0) / 100) : 1;
+    const records = buildOppBillingForecast(o, forecastEndYm);
+    oppForecasts.push({ opp: o, records, weight });
+
+    records.forEach(r => {
+      // 請求月に請求額を計上
+      if(monthMap[r.billingYm]) {
+        monthMap[r.billingYm].billing += r.billingAmt * weight;
+      }
+      // 入金月に入金を計上
+      if(r.paymentYm && monthMap[r.paymentYm]) {
+        if(r.cashAmt > 0) {
+          // 入金実績あり
+          monthMap[r.paymentYm].cashActual += r.cashAmt * weight;
+        } else if(r.source === 'actual' && r.billingYm <= currentMonth) {
+          // 過去～当月の請求で未入金 → 入金予測
+          monthMap[r.paymentYm].cashForecast += r.billingAmt * weight;
+        } else if(r.source === 'forecast') {
+          // 将来請求 → 入金予測
+          monthMap[r.paymentYm].cashForecast += r.billingAmt * weight;
+        } else if(r.source === 'actual' && r.billingYm > currentMonth) {
+          // 未来月にスケジュール済みだが未入金
+          monthMap[r.paymentYm].cashForecast += r.billingAmt * weight;
+        }
+      }
+    });
+
+    // 売上は既存 db.monthly から
+    months.forEach(ym => {
+      const m = (db.monthly[ym] || {})[o.id];
+      if(m && m.sales) {
+        monthMap[ym].sales += (m.sales || 0) * weight;
+      }
+    });
+  });
+
+  // monthlyTotals 配列
+  let cumCash = 0;
+  const monthlyTotals = months.map(ym => {
+    const d = monthMap[ym];
+    const isPast = ym < currentMonth;
+    const isCurrent = ym === currentMonth;
+
+    // 過去月: 入金実績のみ使用。当月: 実績＋予測。未来月: 予測のみ
+    let cashActual = 0, cashForecast = 0;
+    if(isPast) {
+      // 過去月: 実績があればそれ、なければ予測を未回収として扱う
+      cashActual = d.cashActual;
+      // 過去月で予測入金があるが実績がない → 遅延扱い、表示はしない
+    } else if(isCurrent) {
+      cashActual = d.cashActual;
+      cashForecast = d.cashForecast;
+    } else {
+      cashForecast = d.cashForecast;
+    }
+
+    cumCash += cashActual + cashForecast;
+
+    return {
+      ym,
+      label: monthLabel(ym),
+      shortLabel: ym.split('-')[1] + '月',
+      sales: Math.round(d.sales * 100) / 100,
+      billing: Math.round(d.billing * 100) / 100,
+      cashActual: Math.round(cashActual * 100) / 100,
+      cashForecast: Math.round(cashForecast * 100) / 100,
+      cumCash: Math.round(cumCash * 100) / 100,
+      isPast,
+      isCurrent,
+    };
+  });
+
+  return { months, monthlyTotals, opps, oppForecasts, forecastEndYm };
+}
+
+function renderCashflow() {
+  const data = buildCashflowData();
+  const { months, monthlyTotals, opps, oppForecasts } = data;
+
+  // === メトリクスカード ===
+  const thisMonth = monthlyTotals.find(m => m.isCurrent) || {};
+  const nextMonth = monthlyTotals.find(m => m.ym === addMonthKey(currentMonth, 1)) || {};
+  const futureMonths = monthlyTotals.filter(m => !m.isPast && !m.isCurrent);
+  const totalForecastCash = futureMonths.reduce((s, m) => s + m.cashForecast, 0);
+
+  // 未回収残高: 全案件で (請求済 - 入金済) の合計
+  let totalUncollected = 0;
+  opps.forEach(o => {
+    Object.keys(db.monthly).forEach(ym => {
+      const m = db.monthly[ym][o.id];
+      if(m) totalUncollected += Math.max(0, (m.billing || 0) - (m.cash || 0));
+    });
+  });
+
+  // 入金遅延リスク: 過去月で請求済・未入金（入金予定月を過ぎている）
+  let riskCount = 0;
+  oppForecasts.forEach(({ records }) => {
+    records.forEach(r => {
+      if(r.source === 'actual' && r.billingAmt > 0 && r.cashAmt < r.billingAmt) {
+        if(r.paymentYm && r.paymentYm < currentMonth) riskCount++;
+      }
+    });
+  });
+
+  document.getElementById('cf-metrics').innerHTML = `
+    <div class="metric-card blue">
+      <div class="metric-label">当月 入金（実績＋予測）</div>
+      <div class="metric-value">${fmt(thisMonth.cashActual + thisMonth.cashForecast)}</div>
+      <div class="metric-change neutral">実績 ${fmt(thisMonth.cashActual)} ／ 予測 ${fmt(thisMonth.cashForecast)}</div>
+    </div>
+    <div class="metric-card green">
+      <div class="metric-label">翌月 入金予測</div>
+      <div class="metric-value">${fmt(nextMonth.cashForecast)}</div>
+      <div class="metric-change neutral">当月の請求予定 → 翌月末入金</div>
+    </div>
+    <div class="metric-card amber">
+      <div class="metric-label">未回収残高</div>
+      <div class="metric-value">${fmt(totalUncollected)}</div>
+      <div class="metric-change neutral">将来入金予測計 ${fmt(totalForecastCash)}</div>
+    </div>
+    <div class="metric-card red">
+      <div class="metric-label">入金遅延リスク</div>
+      <div class="metric-value">${riskCount}件</div>
+      <div class="metric-change neutral">入金予定月を超過</div>
+    </div>
+  `;
+
+  // === チャート ===
+  renderCashflowChart(monthlyTotals);
+
+  // === 月別内訳テーブル ===
+  renderCashflowTable(monthlyTotals);
+
+  // === 案件別スケジュール ===
+  renderCashflowSchedule(oppForecasts);
+}
+
+function renderCashflowChart(data) {
+  const ctx = document.getElementById('cf-chart');
+  if(!ctx) return;
+  if(cfChart) { cfChart.destroy(); cfChart = null; }
+
+  const labels = data.map(d => d.shortLabel);
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+  // 当月のインデックスを見つけてアノテーション用に
+  const currentIdx = data.findIndex(d => d.isCurrent);
+
+  cfChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '売上計上',
+          data: data.map(d => d.sales),
+          backgroundColor: isDark ? 'rgba(56,138,221,0.45)' : 'rgba(24,95,165,0.35)',
+          borderRadius: 3,
+          order: 4,
+          barPercentage: 0.7,
+        },
+        {
+          label: '請求額',
+          data: data.map(d => d.billing),
+          backgroundColor: isDark ? 'rgba(29,158,117,0.45)' : 'rgba(29,158,117,0.35)',
+          borderRadius: 3,
+          order: 3,
+          barPercentage: 0.7,
+        },
+        {
+          label: '入金実績',
+          data: data.map(d => d.cashActual),
+          backgroundColor: isDark ? 'rgba(239,159,39,0.7)' : 'rgba(186,117,23,0.55)',
+          borderRadius: 3,
+          order: 2,
+          barPercentage: 0.7,
+        },
+        {
+          label: '入金予測',
+          data: data.map(d => d.cashForecast),
+          backgroundColor: isDark ? 'rgba(239,159,39,0.25)' : 'rgba(186,117,23,0.18)',
+          borderColor: isDark ? 'rgba(239,159,39,0.6)' : 'rgba(186,117,23,0.45)',
+          borderWidth: 1,
+          borderDash: [4, 2],
+          borderRadius: 3,
+          order: 1,
+          barPercentage: 0.7,
+        },
+        {
+          label: '累積キャッシュ',
+          data: data.map(d => d.cumCash),
+          type: 'line',
+          borderColor: isDark ? '#E24B4A' : '#A32D2D',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: isDark ? '#E24B4A' : '#A32D2D',
+          tension: 0.3,
+          yAxisID: 'y1',
+          order: 0,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            font: { size: 11 },
+            color: isDark ? '#9a9a96' : '#6b6b67',
+            boxWidth: 12, padding: 12,
+            usePointStyle: false,
+          }
+        },
+        tooltip: {
+          callbacks: {
+            title: function(items) {
+              const idx = items[0].dataIndex;
+              const d = data[idx];
+              return d.label + (d.isCurrent ? '（当月）' : d.isPast ? '（確定）' : '（予測）');
+            },
+            label: function(ctx) {
+              const val = ctx.parsed.y;
+              if(!val && val !== 0) return '';
+              return ' ' + ctx.dataset.label + ': ' + fmt(val);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { font: { size: 11 }, color: isDark ? '#6b6b67' : '#9a9a96' },
+          grid: { display: false },
+        },
+        y: {
+          position: 'left',
+          ticks: {
+            font: { size: 11 },
+            color: isDark ? '#6b6b67' : '#9a9a96',
+            callback: v => fmt(v),
+          },
+          grid: { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' },
+          title: { display: true, text: '月額（万円）', font: { size: 11 }, color: isDark ? '#6b6b67' : '#9a9a96' },
+        },
+        y1: {
+          position: 'right',
+          ticks: {
+            font: { size: 11 },
+            color: isDark ? '#E24B4A' : '#A32D2D',
+            callback: v => fmt(v),
+          },
+          grid: { drawOnChartArea: false },
+          title: { display: true, text: '累積（万円）', font: { size: 11 }, color: isDark ? '#E24B4A' : '#A32D2D' },
+        }
+      }
+    }
+  });
+}
+
+function renderCashflowTable(monthlyTotals) {
+  if(!monthlyTotals) monthlyTotals = buildCashflowData().monthlyTotals;
+
+  // ヘッダー
+  let thead = '<tr>';
+  thead += '<th style="padding:8px 10px;text-align:left;min-width:100px;position:sticky;left:0;background:var(--bg-secondary);z-index:1;">月</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">売上計上</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">請求額</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">入金実績</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">入金予測</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">入金計</th>';
+  thead += '<th style="padding:8px 10px;text-align:right;">累積CF</th>';
+  thead += '<th style="padding:8px 10px;text-align:center;">状態</th></tr>';
+  document.getElementById('cf-thead').innerHTML = thead;
+
+  let html = '';
+  monthlyTotals.forEach(m => {
+    const isFuture = !m.isPast && !m.isCurrent;
+    const cashTotal = m.cashActual + m.cashForecast;
+    const bgStyle = m.isCurrent ? 'background:var(--accent-light);' : '';
+    const cfColor = m.cumCash < 0 ? 'color:var(--red);font-weight:600;' : '';
+    const stickyBg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-primary)';
+
+    let statusBadge = '';
+    if(m.isCurrent) statusBadge = '<span class="badge badge-blue">当月</span>';
+    else if(isFuture) statusBadge = '<span class="badge badge-gray">予測</span>';
+    else statusBadge = '<span class="badge badge-green">確定</span>';
+
+    const dash = '<span style="color:var(--text-muted);">—</span>';
+    html += `<tr style="${bgStyle}">`;
+    html += `<td style="padding:8px 10px;font-weight:500;position:sticky;left:0;background:${stickyBg};z-index:1;">${m.label}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;">${m.sales ? fmt(m.sales) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;">${m.billing ? fmt(m.billing) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;">${m.cashActual ? fmt(m.cashActual) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;${isFuture||m.isCurrent ? 'font-style:italic;color:var(--amber);' : ''}">${m.cashForecast ? fmt(m.cashForecast) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;font-weight:500;">${cashTotal ? fmt(cashTotal) : dash}</td>`;
+    html += `<td style="padding:8px 10px;text-align:right;font-weight:600;${cfColor}">${fmt(m.cumCash)}</td>`;
+    html += `<td style="padding:8px 10px;text-align:center;">${statusBadge}</td>`;
+    html += '</tr>';
+  });
+  document.getElementById('cf-tbody').innerHTML = html;
+
+  // フッター
+  const totals = monthlyTotals.reduce((acc, m) => {
+    acc.sales += m.sales; acc.billing += m.billing;
+    acc.cashActual += m.cashActual; acc.cashForecast += m.cashForecast;
+    return acc;
+  }, { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 });
+
+  document.getElementById('cf-tfoot').innerHTML = `
+    <tr>
+      <td style="padding:8px 10px;font-weight:600;">合計</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.sales)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.billing)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--amber);">${fmt(totals.cashForecast)}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual + totals.cashForecast)}</td>
+      <td style="padding:8px 10px;"></td>
+      <td style="padding:8px 10px;"></td>
+    </tr>
+  `;
+}
+
+function renderCashflowSchedule(oppForecasts) {
+  if(!oppForecasts) oppForecasts = buildCashflowData().oppForecasts;
+  const tbody = document.getElementById('cf-schedule-tbody');
+  if(!tbody) return;
+  const q = (document.getElementById('cf-search')?.value || '').toLowerCase();
+
+  const rows = oppForecasts.map(({ opp: o, records }) => {
+    // 集計
+    let totalBilling = 0, totalCash = 0;
+    records.forEach(r => { totalBilling += r.billingAmt; totalCash += r.cashAmt; });
+    const uncollected = totalBilling - totalCash;
+
+    // 次回の未入金レコードを探す（billingYm > 直近入金済 or 最初の未入金）
+    const futureRecords = records
+      .filter(r => r.cashAmt < r.billingAmt)
+      .sort((a, b) => a.billingYm.localeCompare(b.billingYm));
+    const nextRecord = futureRecords[0] || null;
+    const nextBillingYm  = nextRecord?.billingYm || '';
+    const nextPaymentYm  = nextRecord?.paymentYm || '';
+    const nextPaymentAmt = nextRecord ? (nextRecord.billingAmt - nextRecord.cashAmt) : 0;
+
+    // ステータス
+    let status = 'normal';
+    if(nextRecord && nextRecord.paymentYm && nextRecord.paymentYm < currentMonth && nextRecord.cashAmt < nextRecord.billingAmt) {
+      status = 'overdue';
+    } else if(totalBilling === 0) {
+      status = 'unbilled';
+    } else if(uncollected <= 0) {
+      status = 'complete';
+    }
+
+    return { o, totalBilling, totalCash, uncollected, nextBillingYm, nextPaymentYm, nextPaymentAmt, status };
+  }).filter(r => {
+    if(r.o.amount <= 0) return false;
+    if(q && !r.o.name.toLowerCase().includes(q) && !(r.o.customer||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  // ソート: overdue → unbilled → normal → complete
+  const statusOrder = { overdue: 0, unbilled: 1, normal: 2, complete: 3 };
+  rows.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9) || b.uncollected - a.uncollected);
+
+  const statusBadgeMap = {
+    overdue:  '<span class="badge badge-red">入金遅延</span>',
+    unbilled: '<span class="badge badge-amber">未請求</span>',
+    normal:   '<span class="badge badge-blue">進行中</span>',
+    complete: '<span class="badge badge-green">回収完了</span>',
+  };
+
+  tbody.innerHTML = rows.map(r => `
+    <tr style="${r.status === 'overdue' ? 'background:var(--red-light);' : ''}">
+      <td style="padding:8px;font-weight:500;cursor:pointer;color:var(--accent);" onclick="showOppDetail('${r.o.id}')">${r.o.name}</td>
+      <td style="padding:8px;">${r.o.customer || '—'}</td>
+      <td style="padding:8px;text-align:center;">${recogBadge(r.o.recog)}</td>
+      <td style="padding:8px;text-align:right;font-weight:500;">${fmt(r.o.amount)}</td>
+      <td style="padding:8px;text-align:right;">${r.totalBilling ? fmt(r.totalBilling) : '—'}</td>
+      <td style="padding:8px;text-align:right;">${r.totalCash ? fmt(r.totalCash) : '—'}</td>
+      <td style="padding:8px;text-align:right;${r.uncollected > 0 ? 'color:var(--red);font-weight:600;' : ''}">${r.uncollected > 0 ? fmt(r.uncollected) : '—'}</td>
+      <td style="padding:8px;text-align:center;">${r.nextBillingYm ? monthLabel(r.nextBillingYm) : '—'}</td>
+      <td style="padding:8px;text-align:center;${r.status==='overdue' ? 'color:var(--red);font-weight:600;' : ''}">${r.nextPaymentYm ? monthLabel(r.nextPaymentYm) : '—'}</td>
+      <td style="padding:8px;text-align:right;font-style:italic;color:var(--amber);">${r.nextPaymentAmt > 0 ? fmt(r.nextPaymentAmt) : '—'}</td>
+      <td style="padding:8px;text-align:center;">${statusBadgeMap[r.status] || ''}</td>
+    </tr>
+  `).join('');
+
+  if(rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--text-muted);">表示可能な受注案件がありません</td></tr>';
+  }
+}
+
+function exportCashflowCSV() {
+  const { monthlyTotals } = buildCashflowData();
+  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,入金計（万円）,累積CF（万円）,状態\n';
+  monthlyTotals.forEach(m => {
+    const status = m.isCurrent ? '当月' : (m.isPast ? '確定' : '予測');
+    const cashTotal = m.cashActual + m.cashForecast;
+    csv += `${m.label},${m.sales},${m.billing},${m.cashActual},${m.cashForecast},${cashTotal},${m.cumCash},${status}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'cashflow_forecast.csv'; a.click();
+  URL.revokeObjectURL(url);
+  toast('CSVを出力しました');
 }
 
 // ============================================================
@@ -10016,6 +10371,15 @@ function updateUserUI() {
       if(firstTab) firstTab.click();
     }
   }
+  // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみ表示
+  const canCashflow = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
+  const cfNav = document.querySelector('.nav-item[data-page="cashflow"]');
+  if(cfNav) cfNav.style.display = canCashflow ? '' : 'none';
+  // キャッシュフロー表示中なのに権限なし → ダッシュボードへ遷移
+  if(!canCashflow) {
+    const activePage = document.querySelector('.page.active');
+    if(activePage && activePage.id === 'page-cashflow') navigate('dashboard');
+  }
 }
 
 // ─ 全画面を現在ユーザー・スコープで再描画
@@ -10025,6 +10389,7 @@ function refreshAllViews() {
   else if(page === 'opportunities') renderOpportunities();
   else if(page === 'monthly')       renderMonthly();
   else if(page === 'payment')       renderPayment();
+  else if(page === 'cashflow')      renderCashflow();
   else if(page === 'reports')       renderReports();
   else if(page === 'alerts')        renderAlerts();
   else                              renderDashboard();
