@@ -9340,6 +9340,11 @@ function buildCashflowData() {
     if(bal !== null) actualClosingCash[ym] = bal;
   });
 
+  // ── 投資・財務CF 個別イベント（万円） ──
+  const investFinEvents = {
+    '2026-04': { amount: 139809435 / 10000, label: '第三者割当増資' },
+  };
+
   // monthlyTotals 配列 ─ CF計算書構造(I〜VII)
   // 実績月（10月〜3月）: BS現金預金残高から期首・期末を直接設定
   // 予測月（4月〜）  : 最終実績月の期末残高から営業CF＋財務CFで順算
@@ -9365,9 +9370,12 @@ function buildCashflowData() {
     const opCashIn = cashActual + cashForecast;
     const opCashOut = d.costOut;
     const opNetCF = opCashIn - opCashOut;
-    const investFinCF = -d.interest;
+    // 投資・財務CF = −支払利息 ＋ 個別イベント（増資・借入等）
+    const eventCF = investFinEvents[ym] ? investFinEvents[ym].amount : 0;
+    const investFinCF = -d.interest + eventCF;
     const netChange = opNetCF + investFinCF;
-    return { ym, opCashIn, opCashOut, opNetCF, investFinCF, netChange, cashActual, cashForecast, isPast, isCurrent, hasActualBal, d };
+    const eventLabel = investFinEvents[ym] ? investFinEvents[ym].label : '';
+    return { ym, opCashIn, opCashOut, opNetCF, investFinCF, netChange, cashActual, cashForecast, isPast, isCurrent, hasActualBal, eventCF, eventLabel, d };
   });
 
   // 期首・期末残高を設定
@@ -9450,6 +9458,7 @@ function buildCashflowData() {
       costSource: mc.d.costSource,
       costBreakdown: mc.d.costBreakdown,
       interest: r(mc.d.interest),
+      eventCF: r(mc.eventCF), eventLabel: mc.eventLabel,
       isPast: mc.isPast, isCurrent: mc.isCurrent,
       hasActualBal: mc.hasActualBal,
       // 旧互換
@@ -9696,6 +9705,7 @@ function renderCashflowTable(monthlyTotals) {
     { key: 'opNetCF',     label: 'IV. 営業CF差引額',         cls: 'section-head', color: '' },
     { key: 'investFinCF', label: 'V. 投資・財務CF',          cls: 'sub', color: 'var(--purple)' },
     { key: '_interest',   label: '　　支払利息',             cls: 'detail', color: '' },
+    { key: '_event',      label: '　　増資・借入等',          cls: 'detail', color: 'var(--green)' },
     { key: 'netChange',   label: 'VI. 当月純増減額',         cls: 'total', color: '' },
     { key: 'closeBal',    label: 'VII. 期末現金残高',         cls: 'total-end', color: '' },
   ];
@@ -9729,6 +9739,7 @@ function renderCashflowTable(monthlyTotals) {
         case 'opNetCF': val = m.opNetCF; break;
         case 'investFinCF': val = m.investFinCF; break;
         case '_interest': val = -m.interest; break;
+        case '_event': val = m.eventCF || 0; break;
         case 'netChange': val = m.netChange; break;
         case 'closeBal': val = m.closeBal; break;
       }
