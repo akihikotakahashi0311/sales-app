@@ -3674,6 +3674,10 @@ function _buildQuoteHtml() {
   const delivery = document.getElementById('q-delivery').value;
   const notes    = document.getElementById('q-notes').value;
 
+  // 押印選択
+  const sealTypeEl = document.querySelector('input[name="qot-seal"]:checked');
+  const sealType = sealTypeEl ? sealTypeEl.value : 'company';
+
   // 明細取得
   const items = [];
   document.querySelectorAll('#q-items-tbody tr').forEach((tr, i) => {
@@ -3815,6 +3819,7 @@ function saveQuoteToOpp() {
   </div>
   <div class="meta-right" style="position:relative;">
     <div class="company-name">${ci.name}</div>
+    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div>' : ''}
     ${ci.zip} ${ci.addr1}<br>
     ${ci.addr2}<br>
     TEL: ${salesTel || ci.tel}<br>
@@ -4218,6 +4223,8 @@ function _buildInvoiceHtml() {
   const owner    = document.getElementById('inv-owner').value.trim();
   const due      = document.getElementById('inv-due').value;
   const notes    = document.getElementById('inv-notes').value;
+  const sealTypeEl = document.querySelector('input[name="inv-seal"]:checked');
+  const sealType = sealTypeEl ? sealTypeEl.value : 'company';
 
   const ci = COMPANY_INFO;
   const ownerUser  = db.users.find(u => u.name === owner);
@@ -4342,6 +4349,7 @@ function _buildInvoiceHtml() {
   <div class="top-right" style="position:relative;">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="4DIN" style="height:36px;width:auto;margin-bottom:3px;display:block;">' : ''}
     <div class="cname">${ci.name}</div>
+    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div>' : ''}
     登録番号　${ci.regNo}<br>
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
@@ -4624,6 +4632,8 @@ function _buildDeliveryHtml() {
   const payment  = document.getElementById('del-payment').value;
   const delivery = document.getElementById('del-delivery').value;
   const notes    = document.getElementById('del-notes').value;
+  const sealTypeEl = document.querySelector('input[name="del-seal"]:checked');
+  const sealType = sealTypeEl ? sealTypeEl.value : 'company';
 
   const ci = COMPANY_INFO;
   const ownerUser  = db.users.find(u => u.name === owner);
@@ -4754,7 +4764,8 @@ function _buildDeliveryHtml() {
   </div>
   <div class="top-right">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="" style="height:32px;width:auto;margin-bottom:4px;display:block;">' : ''}
-    <div class="cname">${ci.name}　代表取締役　高橋精彦</div>
+    <div class="cname">${ci.name}</div>
+    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div>' : ''}
     登録番号：${ci.regNo}<br>
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
@@ -9965,6 +9976,15 @@ function saveTask() {
         <textarea class="form-control" id="inv-notes" rows="2"></textarea>
       </div>
     </div>
+    <div style="padding:8px 20px 4px;border-top:1px solid var(--border);">
+      <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">押印選択</label>
+      <label style="margin-right:16px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="inv-seal" value="company" checked style="margin-right:4px;">会社印
+      </label>
+      <label style="font-size:13px;cursor:pointer;">
+        <input type="radio" name="inv-seal" value="daihyo" style="margin-right:4px;">代表取締役印
+      </label>
+    </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('invoice-maker')">キャンセル</button>
       <button class="btn btn-primary" onclick="previewInvoice()">👁 印刷プレビュー</button>
@@ -10065,6 +10085,15 @@ function saveTask() {
         <label class="form-label">備考</label>
         <textarea class="form-control" id="del-notes" rows="3"></textarea>
       </div>
+    </div>
+    <div style="padding:8px 20px 4px;border-top:1px solid var(--border);">
+      <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">押印選択</label>
+      <label style="margin-right:16px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="del-seal" value="company" checked style="margin-right:4px;">会社印
+      </label>
+      <label style="font-size:13px;cursor:pointer;">
+        <input type="radio" name="del-seal" value="daihyo" style="margin-right:4px;">代表取締役印
+      </label>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('delivery-maker')">キャンセル</button>
@@ -10178,6 +10207,15 @@ function saveTask() {
         <textarea class="form-control" id="q-notes" rows="4"
           placeholder="※はオプションのお見積りです。&#10;・交通費は実費請求いたします。"></textarea>
       </div>
+    </div>
+    <div style="padding:8px 20px 4px;border-top:1px solid var(--border);">
+      <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">押印選択</label>
+      <label style="margin-right:16px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="qot-seal" value="company" checked style="margin-right:4px;">会社印
+      </label>
+      <label style="font-size:13px;cursor:pointer;">
+        <input type="radio" name="qot-seal" value="daihyo" style="margin-right:4px;">代表取締役印
+      </label>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('quote-maker')">キャンセル</button>
