@@ -2133,6 +2133,14 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <input type="file" id="pdf-input-invoice" accept=".pdf,application/pdf" style="display:none" onchange="handlePdfUpload(this,'invoice')">
           <div class="pdf-file-list" id="pdf-list-invoice"></div>
         </div>
+        <div class="form-group">
+          <label class="form-label" style="font-size:12px;">納品書</label>
+          <div class="pdf-drop-zone" id="pdf-drop-delivery" onclick="document.getElementById('pdf-input-delivery').click()" ondragover="event.preventDefault()" ondrop="handlePdfDrop(event,'delivery')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:24px;height:24px;color:var(--text-muted);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><br>クリック/ドロップ
+          </div>
+          <input type="file" id="pdf-input-delivery" accept=".pdf,application/pdf" style="display:none" onchange="handlePdfUpload(this,'delivery')">
+          <div class="pdf-file-list" id="pdf-list-delivery"></div>
+        </div>
       </div>
 
       <!-- ▌売上回収時期 -->
@@ -2192,14 +2200,17 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
     </div>
     <div class="modal-body" id="detail-modal-body"></div>
 
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal('opp-detail')">閉じる</button>
-      <button class="btn" onclick="document.getElementById('pdf-input-contract-detail').click()" style="background:#8b6914;color:#fff;border:none;">📋 契約書アップロード</button>
-      <input type="file" id="pdf-input-contract-detail" accept=".pdf,application/pdf" style="display:none" onchange="handlePdfUpload(this,'contract')">
-      <button class="btn" onclick="generateQuotePdf(currentDetailOppId)" style="background:var(--green,#1e7e34);color:#fff;border:none;">📄 見積書作成</button>
-      <select id="detail-invoice-ym-sel" class="form-control" style="display:none;height:34px;width:120px;font-size:12px;"></select>
-      <button class="btn" id="detail-invoice-btn" style="display:none;background:#1565c0;color:#fff;border:none;" onclick="generateInvoice(currentDetailOppId, document.getElementById('detail-invoice-ym-sel').value)">🧾 請求書作成</button>
-      <button class="btn btn-primary" id="detail-edit-btn">編集</button>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn" onclick="document.getElementById('pdf-input-contract-detail').click()" style="background:#8b6914;color:#fff;border:none;">📋 契約書アップロード</button>
+        <input type="file" id="pdf-input-contract-detail" accept=".pdf,application/pdf" style="display:none" onchange="handlePdfUpload(this,'contract')">
+        <button class="btn" onclick="generateQuotePdf(currentDetailOppId)" style="background:var(--green,#1e7e34);color:#fff;border:none;">📄 見積書作成</button>
+        <button class="btn" id="detail-invoice-btn" style="display:none;background:#1565c0;color:#fff;border:none;" onclick="generateInvoice(currentDetailOppId, window._detailInvoiceYm)">🧾 請求書作成</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-primary" id="detail-edit-btn">編集</button>
+        <button class="btn" onclick="closeModal('opp-detail')">閉じる</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3481,8 +3492,8 @@ function editOrg(id) {
 // PDF添付ファイル管理
 // ============================================================
 // ストレージキー: pdf_{oppId}_{type} → [{name, size, data(base64), uploadedAt}]
-const PDF_TYPES = ['estimate', 'contract', 'invoice'];
-const PDF_LABELS = {estimate:'見積書', contract:'契約書', invoice:'請求書'};
+const PDF_TYPES = ['estimate', 'contract', 'invoice', 'delivery'];
+const PDF_LABELS = {estimate:'見積書', contract:'契約書', invoice:'請求書', delivery:'納品書'};
 let currentPdfOppId = null; // 編集中の案件ID
 
 // localStorageキー生成
@@ -4834,12 +4845,11 @@ function previewDelivery() {
 // プレビューウィンドウから呼ばれる納品書保存関数
 function saveDeliveryFromPreview(oppId, fileName, dataUrl, size, ym) {
   if(!db.pdfFiles) db.pdfFiles = {};
-  const key = pdfKey(oppId, 'invoice'); // invoice タイプに紐付け（添付タブに表示）
-  const files = getPdfFiles(oppId, 'invoice');
+  const files = getPdfFiles(oppId, 'delivery');
   const existing = files.findIndex(f => f.name === fileName);
   const entry = {name: fileName, data: dataUrl, size, date: new Date().toISOString()};
   if(existing >= 0) files[existing] = entry; else files.push(entry);
-  savePdfFiles(oppId, 'invoice', files);
+  savePdfFiles(oppId, 'delivery', files);
   save();
   toast('納品書を案件に保存しました', 'success');
   if(currentDetailOppId === oppId) showOppDetail(oppId);
@@ -5975,21 +5985,13 @@ function showOppDetail(id) {
   }).map(([ym]) => ym).sort().reverse();
 
   const _invBtn = document.getElementById('detail-invoice-btn');
-  const _invSel = document.getElementById('detail-invoice-ym-sel');
-  if(_invBtn && _invSel) {
+  if(_invBtn) {
     if(_billingMonths.length > 0) {
-      // 月選択セレクタを更新
-      _invSel.innerHTML = _billingMonths.map(ym => {
-        const [y, m] = ym.split('-');
-        return `<option value="${ym}">${y}年${parseInt(m)}月</option>`;
-      }).join('');
-      // 当月が含まれていれば当月を選択、なければ最新月
-      _invSel.value = _billingMonths.includes(currentMonth) ? currentMonth : _billingMonths[0];
+      window._detailInvoiceYm = _billingMonths.includes(currentMonth) ? currentMonth : _billingMonths[0];
       _invBtn.style.display = '';
-      _invSel.style.display = _billingMonths.length > 1 ? '' : 'none';
     } else {
       _invBtn.style.display = 'none';
-      _invSel.style.display = 'none';
+      window._detailInvoiceYm = currentMonth;
     }
   }
 
