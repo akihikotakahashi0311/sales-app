@@ -1661,7 +1661,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            入金：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に入金と想定　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜1月実績、以降は直近4ヶ月平均予測・減価償却費除外）　／　投資・財務CF：支払利息
+            残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜3月実績、4月〜は直近6ヶ月平均予測・減価償却費除外）　／　投資・財務CF：支払利息＋BS差額
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -9004,52 +9004,79 @@ function markAsPaid(oppId, ym) {
 // ============================================================
 let cfChart = null;
 
-// ── 試算表（残高試算表）からのコストデータ ──
-// 株式会社４DIN 2025/10〜2026/02 実績 + 3月以降予測（直近4ヶ月平均ベース）
-// ※ 減価償却費は非資金項目のため営業CF出金から除外し、投資CFに含めない
+// ── 試算表（残高試算表年間推移 確定版 0427）からのコストデータ ──
+// 株式会社４DIN 2025/10〜2026/03 確定実績 + 4月以降予測（直近6ヶ月平均ベース）
+// ※ 減価償却費は非資金項目のため営業CF出金から除外
 const trialBalanceCosts = (function() {
+  // ── 損益計算書 確定データ（円） ──
   const actual = {
     '2025-10': {
-      cogs: { salary: 6880169, welfare: 1177328, telecom: 3897253, depreciation: 233193, outsource: 743872, license: 1224293 },
-      sga:  { salary: 4724170, welfare: 610716, benefits: 168887, recruit: 87823, advertising: 467177, entertainment: 885585, meeting: 176537, travel: 1725263, telecom: 172487, supplies: 41369, utilities: 3784, dues: 133333, fees: 1667870, rent: 190000, lease: 8700, insurance: 57172, tax: 26960, professional: 937300, outsource: 5192808, donation: 0, rnd: 59092, depreciation: 111250 },
-      interest: 74235
+      cogs: { salary: 6880169, welfare: 1177328, telecom: 3897253, depreciation: 233193, outsource: 743872, license: 1224293, purchase: 1854100 },
+      sga:  { salary: 4724170, welfare: 610716, benefits: 168887, recruit: 87823, advertising: 467177, entertainment: 885585, meeting: 176537, travel: 1725263, telecom: 172487, supplies: 41369, utilities: 3784, dues: 133333, fees: 1667870, rent: 190000, lease: 8700, insurance: 57172, tax: 26960, professional: 937300, outsource: 5197263, donation: 0, rnd: 59092, depreciation: 111250, books: 0 },
+      interest: 74235, incomeInterest: 0, miscIncome: 13063
     },
     '2025-11': {
-      cogs: { salary: 7682693, welfare: 1326637, telecom: 3487906, depreciation: 233193, outsource: 763872, license: 1224293 },
-      sga:  { salary: 4733818, welfare: 610716, benefits: 121126, recruit: 40914, advertising: 466300, entertainment: 1046183, meeting: 25416, travel: 1318875, telecom: 191267, supplies: 214514, utilities: 5420, dues: 126333, fees: 138997, rent: 190000, lease: 8700, insurance: 57172, tax: 2600, professional: 937300, outsource: 5070062, donation: 0, rnd: 0, depreciation: 111250 },
-      interest: 41096
+      cogs: { salary: 7682693, welfare: 1326637, telecom: 3487906, depreciation: 233193, outsource: 763872, license: 1224293, purchase: 0 },
+      sga:  { salary: 4733818, welfare: 610716, benefits: 121126, recruit: 40914, advertising: 466300, entertainment: 1046183, meeting: 25416, travel: 1318875, telecom: 191267, supplies: 214514, utilities: 5420, dues: 126333, fees: 138997, rent: 190000, lease: 8700, insurance: 57172, tax: 2600, professional: 937300, outsource: 5070062, donation: 0, rnd: 0, depreciation: 111250, books: 0 },
+      interest: 41096, incomeInterest: 0, miscIncome: 12618
     },
     '2025-12': {
-      cogs: { salary: 8542157, welfare: 1389024, telecom: 3287903, depreciation: 233193, outsource: 248420, license: 1224293 },
-      sga:  { salary: 4728500, welfare: 610769, benefits: 25000, recruit: 46366, advertising: 1340910, entertainment: 1058260, meeting: 32597, travel: 1548283, telecom: 170615, supplies: 676045, utilities: 5830, dues: 340333, fees: 142015, rent: 190000, lease: 8700, insurance: 111142, tax: 33000, professional: 937300, outsource: 6330065, donation: 45000, rnd: 0, depreciation: 127537 },
-      interest: 78712
+      cogs: { salary: 8542157, welfare: 1389024, telecom: 3287903, depreciation: 233193, outsource: 261874, license: 1224293, purchase: 0 },
+      sga:  { salary: 4728500, welfare: 610769, benefits: 25000, recruit: 46366, advertising: 1340910, entertainment: 1058260, meeting: 32597, travel: 1548283, telecom: 170615, supplies: 676045, utilities: 5830, dues: 340333, fees: 142560, rent: 190000, lease: 8700, insurance: 111142, tax: 33000, professional: 937300, outsource: 6330065, donation: 45000, rnd: 0, depreciation: 127537, books: 0 },
+      interest: 78712, incomeInterest: 0, miscIncome: 12547
     },
     '2026-01': {
-      cogs: { salary: 8988245, welfare: 1446261, telecom: 3410362, depreciation: 233193, outsource: 648137, license: 1224293 },
-      sga:  { salary: 5395167, welfare: 719684, benefits: 41453, recruit: 46638, advertising: 704264, entertainment: 895133, meeting: 26667, travel: 1370865, telecom: 184323, supplies: 116546, utilities: 5898, dues: 94333, fees: 143955, rent: 190000, lease: 8700, insurance: 57172, tax: 520, professional: 1032300, outsource: 5220685, donation: 0, rnd: 0, depreciation: 253871 },
-      interest: 71463
+      cogs: { salary: 8988245, welfare: 1446261, telecom: 3426596, depreciation: 233193, outsource: 709500, license: 1224293, purchase: 0 },
+      sga:  { salary: 5395167, welfare: 719684, benefits: 41453, recruit: 46638, advertising: 704264, entertainment: 895133, meeting: 26667, travel: 1373612, telecom: 197487, supplies: 116546, utilities: 5898, dues: 94333, fees: 145300, rent: 190000, lease: 8700, insurance: 57172, tax: 520, professional: 1032300, outsource: 5221697, donation: 0, rnd: 0, depreciation: 253871, books: 0 },
+      interest: 71463, incomeInterest: 0, miscIncome: 12632
     },
     '2026-02': {
-      cogs: { salary: 9318020, welfare: 1450219, telecom: 0, depreciation: 0, outsource: 0, license: 0 },
-      sga:  { salary: 5395167, welfare: 719684, benefits: 0, recruit: 0, advertising: 0, entertainment: 0, meeting: 0, travel: 0, telecom: 0, supplies: 0, utilities: 0, dues: 0, fees: 0, rent: 0, lease: 0, insurance: 0, tax: 0, professional: 0, outsource: 0, donation: 0, rnd: 0, depreciation: 0 },
-      interest: 38356
+      cogs: { salary: 9318020, welfare: 1450219, telecom: 3330264, depreciation: 266276, outsource: 692550, license: 2246426, purchase: 0 },
+      sga:  { salary: 5395167, welfare: 719684, benefits: 64982, recruit: 0, advertising: 1307508, entertainment: 1294875, meeting: 12002, travel: 1677705, telecom: 218139, supplies: 52314, utilities: 7160, dues: 133333, fees: 224653, rent: 190000, lease: 8700, insurance: 57172, tax: 131600, professional: 1452300, outsource: 5797790, donation: 0, rnd: 0, depreciation: 368833, books: 29260 },
+      interest: 127626, incomeInterest: 158280, miscIncome: 63478
+    },
+    '2026-03': {
+      cogs: { salary: 9344266, welfare: 1460863, telecom: 2942073, depreciation: 266276, outsource: 0, license: 2217840, purchase: 0 },
+      sga:  { salary: 5395167, welfare: 718842, benefits: 64703, recruit: 4546, advertising: 31620, entertainment: 852351, meeting: 19092, travel: 1098444, telecom: 212648, supplies: 255040, utilities: 5864, dues: 86337, fees: 188342, rent: 190000, lease: 8700, insurance: 57172, tax: 59620, professional: 1205300, outsource: 11975563, donation: 0, rnd: 0, depreciation: 199618, books: 0 },
+      interest: 184387, incomeInterest: 0, miscIncome: 24719
     }
   };
+
+  // ── 貸借対照表 現金預金残高（円）──
+  const cashBalances = {
+    '2025-10': 172141964,
+    '2025-11': 151403071,
+    '2025-12': 122905510,
+    '2026-01': 90260888,
+    '2026-02': 64932637,
+    '2026-03': 34052715,
+  };
+
+  // ── 売上高 確定データ（円）──
+  const salesActual = {
+    '2025-10': 11610449,
+    '2025-11': 11704449,
+    '2025-12': 17006654,
+    '2026-01': 14339450,
+    '2026-02': 17774450,
+    '2026-03': 24431440,
+  };
+
   function sumObj(o) { return Object.values(o).reduce((a,b)=>a+b,0); }
 
-  // 直近4ヶ月(10〜1月)の平均をベースに3月以降を予測(2月は一部のみ実績)
-  const baseMonths = ['2025-10','2025-11','2025-12','2026-01'];
+  // 直近6ヶ月平均をベースに4月以降を予測
+  const baseMonths = Object.keys(actual);
   const avgCogs = {}, avgSga = {};
   for(const k of Object.keys(actual['2025-10'].cogs)) {
-    avgCogs[k] = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].cogs[k], 0) / baseMonths.length);
+    avgCogs[k] = Math.round(baseMonths.reduce((s,ym) => s + (actual[ym].cogs[k]||0), 0) / baseMonths.length);
   }
   for(const k of Object.keys(actual['2025-10'].sga)) {
-    avgSga[k] = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].sga[k], 0) / baseMonths.length);
+    avgSga[k] = Math.round(baseMonths.reduce((s,ym) => s + (actual[ym].sga[k]||0), 0) / baseMonths.length);
   }
   const avgInterest = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].interest, 0) / baseMonths.length);
 
   return {
-    actual,
+    actual, cashBalances, salesActual,
     // 万円単位で返却（試算表は円単位）
     getMonthlyCost(ym) {
       const m = actual[ym];
@@ -9063,23 +9090,29 @@ const trialBalanceCosts = (function() {
       const sgaDepreciation  = sga.depreciation || 0;
       const cogsCash = (sumObj(cogs) - cogsDepreciation) / 10000;
       const sgaCash  = (sumObj(sga) - sgaDepreciation) / 10000;
-      const totalDepreciation = (cogsDepreciation + sgaDepreciation) / 10000;
 
       // 営業CF出金の内訳カテゴリ
       const personnelCost = ((cogs.salary||0) + (cogs.welfare||0) + (sga.salary||0) + (sga.welfare||0) + (sga.benefits||0)) / 10000;
       const outsourceCost = ((cogs.outsource||0) + (sga.outsource||0) + (sga.professional||0)) / 10000;
       const infraCost     = ((cogs.telecom||0) + (cogs.license||0) + (sga.telecom||0) + (sga.rent||0) + (sga.lease||0) + (sga.utilities||0) + (sga.insurance||0)) / 10000;
-      const bizExpCost    = ((sga.travel||0) + (sga.entertainment||0) + (sga.meeting||0) + (sga.advertising||0) + (sga.recruit||0) + (sga.supplies||0) + (sga.dues||0) + (sga.fees||0) + (sga.tax||0) + (sga.donation||0) + (sga.rnd||0)) / 10000;
+      const bizExpCost    = ((cogs.purchase||0) + (sga.travel||0) + (sga.entertainment||0) + (sga.meeting||0) + (sga.advertising||0) + (sga.recruit||0) + (sga.supplies||0) + (sga.dues||0) + (sga.fees||0) + (sga.tax||0) + (sga.donation||0) + (sga.rnd||0) + (sga.books||0)) / 10000;
       const interestMan   = interest / 10000;
 
       return {
         cogsCash, sgaCash,
         totalCashOut: cogsCash + sgaCash,
-        depreciation: totalDepreciation,
         interest: interestMan,
         source: src,
         breakdown: { personnelCost, outsourceCost, infraCost, bizExpCost }
       };
+    },
+    // 月末の現金預金残高（万円）
+    getClosingCash(ym) {
+      return cashBalances[ym] !== undefined ? cashBalances[ym] / 10000 : null;
+    },
+    // 売上高（万円）
+    getSales(ym) {
+      return salesActual[ym] !== undefined ? salesActual[ym] / 10000 : null;
     },
     avgCogs, avgSga, sumObj
   };
@@ -9293,57 +9326,118 @@ function buildCashflowData() {
     monthMap[ym].costOut = cost.totalCashOut;
     monthMap[ym].costSource = cost.source;
     monthMap[ym].interest = cost.interest;
-    monthMap[ym].depreciation = cost.depreciation;
     monthMap[ym].costBreakdown = cost.breakdown;
+    // 試算表に売上実績があれば上書き
+    const tbSales = trialBalanceCosts.getSales(ym);
+    if(tbSales !== null) monthMap[ym].sales = tbSales;
+  });
+
+  // ── 実績月の現金預金残高（貸借対照表）──
+  // 期末残高がわかる月は、そこから期首残高と実際のネットCFを逆算できる
+  const actualClosingCash = {};
+  months.forEach(ym => {
+    const bal = trialBalanceCosts.getClosingCash(ym);
+    if(bal !== null) actualClosingCash[ym] = bal;
   });
 
   // monthlyTotals 配列 ─ CF計算書構造(I〜VII)
-  // 基準: 2026年1月の期首現金残高 = 151,402,430円 = 15140.243万円
-  const BASE_OPEN_YM = '2026-01';
-  const BASE_OPEN_BAL = 151402430 / 10000; // 万円
+  // 実績月（10月〜3月）: BS現金預金残高から期首・期末を直接設定
+  // 予測月（4月〜）  : 最終実績月の期末残高から営業CF＋財務CFで順算
 
-  // まず各月のCF増減を先に計算
+  // まず各月のCF項目を計算
   const monthCFs = months.map(ym => {
     const d = monthMap[ym];
     const isPast = ym < currentMonth;
     const isCurrent = ym === currentMonth;
+    const hasActualBal = actualClosingCash[ym] !== undefined;
+
     let cashActual = 0, cashForecast = 0;
-    if(isPast) {
+    if(hasActualBal || isPast) {
       cashActual = d.cashActual;
+      cashForecast = 0;
     } else if(isCurrent) {
       cashActual = d.cashActual;
       cashForecast = d.cashForecast;
     } else {
       cashForecast = d.cashForecast;
     }
+
     const opCashIn = cashActual + cashForecast;
     const opCashOut = d.costOut;
     const opNetCF = opCashIn - opCashOut;
     const investFinCF = -d.interest;
     const netChange = opNetCF + investFinCF;
-    return { ym, opCashIn, opCashOut, opNetCF, investFinCF, netChange, cashActual, cashForecast, isPast, isCurrent, d };
+    return { ym, opCashIn, opCashOut, opNetCF, investFinCF, netChange, cashActual, cashForecast, isPast, isCurrent, hasActualBal, d };
   });
 
-  // 基準月のインデックスを見つけて期首残高を逆算・順算
-  const baseIdx = monthCFs.findIndex(m => m.ym === BASE_OPEN_YM);
+  // 期首・期末残高を設定
   const openBals = new Array(monthCFs.length).fill(0);
-  if(baseIdx >= 0) {
-    openBals[baseIdx] = BASE_OPEN_BAL;
-    // 基準月より前を逆算（期首残 = 翌月期首残 - 当月netChange）
-    for(let i = baseIdx - 1; i >= 0; i--) {
-      openBals[i] = openBals[i + 1] - monthCFs[i].netChange;
+  const closeBals = new Array(monthCFs.length).fill(0);
+  const actualNetChanges = new Array(monthCFs.length).fill(null);
+
+  // ステップ1: 実績月はBS残高から直接設定
+  // 最初の実績月の期首残高 = 前月の期末残高（前月にBS残高があれば）
+  // 各実績月の期末残高 = actualClosingCash[ym]
+  // ネットCF(実際) = 期末 - 期首
+  const sortedActualYms = months.filter(ym => actualClosingCash[ym] !== undefined);
+
+  if(sortedActualYms.length > 0) {
+    // 最初の実績月の開始: 前月末のBS残高があればそれを使う
+    const firstActualIdx = months.indexOf(sortedActualYms[0]);
+
+    // 各実績月を設定
+    for(let i = 0; i < sortedActualYms.length; i++) {
+      const ym = sortedActualYms[i];
+      const idx = months.indexOf(ym);
+      closeBals[idx] = actualClosingCash[ym];
+
+      if(i === 0) {
+        // 最初の月: 前月のBS残高を探す
+        const prevYm = addMonthKey(ym, -1);
+        if(actualClosingCash[prevYm] !== undefined) {
+          openBals[idx] = actualClosingCash[prevYm];
+        } else {
+          // 前月のBS残高がない → netChangeから逆算不可、closeBal + netChangeで推定
+          // ここでは期末残高とPL上のnetChangeから逆算
+          openBals[idx] = closeBals[idx] - monthCFs[idx].netChange;
+        }
+      } else {
+        // 前月の期末残高 = 当月の期首残高
+        openBals[idx] = closeBals[months.indexOf(sortedActualYms[i-1])];
+      }
+      // 実際のネットCF = 期末 - 期首（PL計算と異なる場合がある＝BS上の資金移動含む）
+      actualNetChanges[idx] = closeBals[idx] - openBals[idx];
     }
-    // 基準月以降を順算（翌月期首残 = 当月期首残 + 当月netChange）
-    for(let i = baseIdx; i < monthCFs.length - 1; i++) {
-      openBals[i + 1] = openBals[i] + monthCFs[i].netChange;
+
+    // ステップ2: 予測月は最終実績月の期末残高から順算
+    const lastActualIdx = months.indexOf(sortedActualYms[sortedActualYms.length - 1]);
+    for(let i = lastActualIdx + 1; i < months.length; i++) {
+      openBals[i] = closeBals[i - 1];
+      closeBals[i] = openBals[i] + monthCFs[i].netChange;
+    }
+
+    // ステップ3: 最初の実績月より前（表示対象の過去月）も逆算
+    for(let i = firstActualIdx - 1; i >= 0; i--) {
+      closeBals[i] = openBals[i + 1];
+      openBals[i] = closeBals[i] - monthCFs[i].netChange;
     }
   }
 
   const monthlyTotals = monthCFs.map((mc, idx) => {
     const r = v => Math.round(v * 100) / 100;
     const openBal = r(openBals[idx]);
-    const netChange = r(mc.netChange);
-    const closeBal = r(openBal + netChange);
+    const closeBal = r(closeBals[idx]);
+    // 実績月はBS差額がネットCF、予測月はPL計算のnetChange
+    const netChange = actualNetChanges[idx] !== null ? r(actualNetChanges[idx]) : r(mc.netChange);
+    // 実績月で投資・財務CFにBS差額との差分を反映
+    let investFinCF = r(mc.investFinCF);
+    let opNetCF = r(mc.opNetCF);
+    if(actualNetChanges[idx] !== null) {
+      // BS上の実際のネットCF と PL上の営業CF＋財務CF の差 → 投資・財務CFに吸収
+      const plNetChange = r(mc.netChange);
+      const bsDiff = netChange - plNetChange;
+      investFinCF = r(mc.investFinCF + bsDiff);
+    }
 
     return {
       ym: mc.ym,
@@ -9351,23 +9445,15 @@ function buildCashflowData() {
       shortLabel: mc.ym.split('-')[1] + '月',
       sales: r(mc.d.sales), billing: r(mc.d.billing),
       cashActual: r(mc.cashActual), cashForecast: r(mc.cashForecast),
-      openBal,
-      opCashIn: r(mc.opCashIn),
-      opCashOut: r(mc.opCashOut),
-      opNetCF: r(mc.opNetCF),
-      investFinCF: r(mc.investFinCF),
-      netChange,
-      closeBal,
+      openBal, opCashIn: r(mc.opCashIn), opCashOut: r(mc.opCashOut),
+      opNetCF, investFinCF, netChange, closeBal,
       costSource: mc.d.costSource,
       costBreakdown: mc.d.costBreakdown,
       interest: r(mc.d.interest),
-      depreciation: r(mc.d.depreciation),
-      isPast: mc.isPast,
-      isCurrent: mc.isCurrent,
+      isPast: mc.isPast, isCurrent: mc.isCurrent,
+      hasActualBal: mc.hasActualBal,
       // 旧互換
-      costOut: r(mc.opCashOut),
-      netCash: netChange,
-      cumCash: closeBal,
+      costOut: r(mc.opCashOut), netCash: netChange, cumCash: closeBal,
     };
   });
 
@@ -9412,7 +9498,7 @@ function renderCashflow() {
     <div class="metric-card" style="border-left:3px solid var(--purple);">
       <div class="metric-label">III. 当月 営業CF出金</div>
       <div class="metric-value" style="color:var(--red);">${fmt(thisMonth.opCashOut)}</div>
-      <div class="metric-change neutral">${thisMonth.costSource === 'actual' ? '試算表実績' : '予測（直近4ヶ月平均）'}</div>
+      <div class="metric-change neutral">${thisMonth.costSource === 'actual' ? '試算表実績' : '予測（直近6ヶ月平均）'}</div>
     </div>
     <div class="metric-card ${(thisMonth.netChange||0) >= 0 ? 'green' : 'red'}">
       <div class="metric-label">VI. 当月 純増減額</div>
@@ -9591,7 +9677,7 @@ function renderCashflowTable(monthlyTotals) {
   thead += `<th style="${rowLabelStyle}background:var(--bg-secondary);min-width:200px;text-align:left;">項目</th>`;
   monthlyTotals.forEach(m => {
     const bg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-secondary)';
-    thead += `<th style="${hdrStyle}background:${bg};">${m.shortLabel}${m.isCurrent ? '<br><span class="badge badge-blue" style="font-size:9px;">当月</span>' : (!m.isPast ? '<br><span class="badge badge-gray" style="font-size:9px;">予測</span>' : '')}</th>`;
+    thead += `<th style="${hdrStyle}background:${bg};">${m.shortLabel}${m.isCurrent ? '<br><span class="badge badge-blue" style="font-size:9px;">当月</span>' : (m.hasActualBal ? '<br><span class="badge badge-green" style="font-size:9px;">確定</span>' : (!m.isPast ? '<br><span class="badge badge-gray" style="font-size:9px;">予測</span>' : ''))}</th>`;
   });
   thead += '</tr>';
   document.getElementById('cf-thead').innerHTML = thead;
