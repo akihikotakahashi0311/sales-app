@@ -1,443 +1,261 @@
+function renderOpportunities() {
+  const q  = (document.getElementById('opp-search')?.value||'').toLowerCase();
+  const sf = document.getElementById('opp-stage-filter')?.value||'';
+  const rf = document.getElementById('opp-recog-filter')?.value||'';
+  const of = document.getElementById('opp-owner-filter')?.value||'';
+  const df = document.getElementById('opp-dept-filter')?.value||'';
+  const pf = document.getElementById('opp-period-filter')?.value || 'all';
 
-function openContractDatePopup(oppId) {
-  _contractDateOppId = oppId;
-  const today = new Date().toISOString().split('T')[0];
+  // 期間フィルターの範囲を計算
+  const _now  = new Date();
+  const _yr   = _now.getFullYear();
+  const _mo   = _now.getMonth() + 1; // 1-12
+  // FY（10月始まり）: 10月以降は当年度、それ以前は前年度
+  const _fy   = _mo >= 10 ? _yr : _yr - 1;
+  const _fyStart = `${_fy}-10`; // FY開始月 YYYY-MM
+  const _fyEnd   = `${_fy+1}-09`; // FY終了月
+  // 現四半期（Q1=10-12, Q2=1-3, Q3=4-6, Q4=7-9）
+  const _qMap = {
+    10:'Q1',11:'Q1',12:'Q1', 1:'Q2',2:'Q2',3:'Q2',
+     4:'Q3', 5:'Q3', 6:'Q3', 7:'Q4',8:'Q4',9:'Q4'
+  };
+  const _qRanges = {
+    Q1:[`${_fy}-10`,`${_fy}-12`], Q2:[`${_fy+1}-01`,`${_fy+1}-03`],
+    Q3:[`${_fy+1}-04`,`${_fy+1}-06`], Q4:[`${_fy+1}-07`,`${_fy+1}-09`]
+  };
+  const _curQ   = _qMap[_mo];
+  const _qRange = _qRanges[_curQ];
+  // 今月
+  const _curMonth = currentMonth; // 'YYYY-MM'
+  // 直近6ヶ月
+  const _6mStart  = addMonthKey(currentMonth, -5);
 
-  // モーダルを開いてデータを復元
-  const modalEl = document.getElementById('modal-contract-date-popup');
-  if(!modalEl) { console.error('modal-contract-date-popup not found'); return; }
-
-  // 契約日のデフォルトを今日に設定
-  const dateEl = document.getElementById('popup-contract-date');
-  if(dateEl && !dateEl.value) dateEl.value = today;
-
-  // opp の既存データを復元
-  initContractDatePopup(oppId);
-
-  modalEl.classList.add('open');
-}
-
-// 契約時必要事項ポップアップ: 請求タイプ変更
-function onPopupBillingTypeChange() {
-  const type      = document.getElementById('popup-billing-type')?.value || '';
-  const dateGroup = document.getElementById('popup-billing-date-group');
-  const dateLabel = document.getElementById('popup-billing-date-label');
-  const dateHint  = document.getElementById('popup-billing-date-hint');
-  const nextGroup = document.getElementById('popup-next-billing-date-group');
-  // 月次請求の場合: 契約終了日を必須に
-  const endBadge  = document.getElementById('popup-end-required-badge');
-  const optBadge  = document.getElementById('popup-end-optional-badge');
-
-  if(type === 'monthly') {
-    if(dateGroup) dateGroup.style.display = 'none';
-    if(nextGroup) nextGroup.style.display = 'none';
-    if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
-    // 月次売上計上のため契約終了日を必須表示
-    if(endBadge) endBadge.style.display = '';
-    if(optBadge) optBadge.style.display = 'none';
-  } else if(type === 'milestone') {
-    if(dateGroup) dateGroup.style.display = '';
-    if(dateLabel) dateLabel.textContent = '初回請求予定日';
-    if(nextGroup) nextGroup.style.display = '';
-    if(dateHint)  dateHint.textContent = '請求書発行後、次回請求予定日を更新してください';
-    if(endBadge) endBadge.style.display = 'none';
-    if(optBadge) optBadge.style.display = '';
-  } else if(type === 'lump') {
-    if(dateGroup) dateGroup.style.display = '';
-    if(dateLabel) dateLabel.textContent = '請求予定日';
-    if(nextGroup) nextGroup.style.display = 'none';
-    if(dateHint)  dateHint.textContent = '';
-    if(endBadge) endBadge.style.display = 'none';
-    if(optBadge) optBadge.style.display = '';
-  } else {
-    if(dateGroup) dateGroup.style.display = '';
-    if(dateLabel) dateLabel.textContent = '請求予定日';
-    if(nextGroup) nextGroup.style.display = 'none';
-    if(dateHint)  dateHint.textContent = '';
-    if(endBadge) endBadge.style.display = 'none';
-    if(optBadge) optBadge.style.display = '';
+  // 案件が期間内かどうか判定（start または end が期間内に重なる）
+  function inPeriod(o) {
+    if(pf === 'all') return true;
+    const s = o.start ? o.start.slice(0,7) : '';
+    const e = o.end   ? o.end.slice(0,7)   : (s || '');
+    if(!s) return pf === 'all';
+    // 案件期間と選択期間が重なるか
+    let rangeS, rangeE;
+    if(pf === 'fy')      { rangeS = _fyStart; rangeE = _fyEnd; }
+    else if(pf === 'quarter') { rangeS = _qRange[0]; rangeE = _qRange[1]; }
+    else if(pf === 'month')   { rangeS = _curMonth; rangeE = _curMonth; }
+    else if(pf === '6months') { rangeS = _6mStart; rangeE = _curMonth; }
+    // 案件期間[s,e] と [rangeS,rangeE] が重なる
+    return s <= rangeE && e >= rangeS;
   }
-  calcPopupPaymentDueDate();
-}
 
-// 契約時ポップアップ: 入金予定日自動計算
-function calcPopupPaymentDueDate() {
-  const type        = document.getElementById('popup-billing-type')?.value || '';
-  const siteVal     = parseInt(document.getElementById('popup-billing-site')?.value || '0') || 0;
-  const billingDate = document.getElementById('popup-billing-date')?.value || '';
-  const payDueEl    = document.getElementById('popup-payment-due');
-  if(!payDueEl) return;
-  let baseDate = '';
-  if(type === 'monthly') {
-    const now = new Date();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    baseDate = monthEnd.toISOString().split('T')[0];
-  } else if(billingDate) {
-    baseDate = billingDate;
+  // 担当者・部門フィルターの選択肢を動的生成
+  const ownerSel = document.getElementById('opp-owner-filter');
+  if(ownerSel && ownerSel.options.length <= 1) {
+    const owners = [...new Set(db.opportunities.map(o=>o.owner).filter(Boolean))].sort();
+    ownerSel.innerHTML = '<option value="">全担当者</option>' + owners.map(o=>`<option>${o}</option>`).join('');
+    if(of) ownerSel.value = of;
   }
-  if(!baseDate) { payDueEl.value = ''; return; }
-  if(siteVal > 0) {
-    const d = new Date(baseDate);
-    d.setDate(d.getDate() + siteVal);
-    payDueEl.value = d.toISOString().split('T')[0];
-  } else {
-    payDueEl.value = nextMonthEndBizDay(baseDate);
+  const deptSel = document.getElementById('opp-dept-filter');
+  if(deptSel && deptSel.options.length <= 1) {
+    const depts = [...new Set(db.opportunities.map(o=>o.dept||'').filter(Boolean))].sort();
+    deptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option>${d}</option>`).join('');
+    if(df) deptSel.value = df;
   }
-}
 
-// 契約時ポップアップを開く際にopp既存データを復元
-function initContractDatePopup(oppId) {
-  const opp = db.opportunities.find(o => o.id === oppId);
-  // 契約日
-  const cdEl = document.getElementById('popup-contract-date');
-  const ceEl = document.getElementById('popup-contract-end');
-  if(cdEl) cdEl.value = opp?.contractDate || '';
-  if(ceEl) ceEl.value = opp?.contractEnd  || opp?.end || '';
-  // 売上回収時期
-  const btEl  = document.getElementById('popup-billing-type');
-  const bsEl  = document.getElementById('popup-billing-site');
-  const bdEl  = document.getElementById('popup-billing-date');
-  const nbEl  = document.getElementById('popup-next-billing-date');
-  const pdEl  = document.getElementById('popup-payment-due');
-  const bmEl  = document.getElementById('popup-billing-memo');
-  if(btEl)  btEl.value  = opp?.billingType     || '';
-  if(bsEl)  bsEl.value  = opp?.billingSite      || '';
-  if(bdEl)  bdEl.value  = opp?.billingDate      || '';
-  if(nbEl)  nbEl.value  = opp?.nextBillingDate  || '';
-  if(pdEl)  pdEl.value  = opp?.paymentDue       || '';
-  if(bmEl)  bmEl.value  = opp?.billingMemo      || '';
-  // エラークリア
-  ['popup-contract-error','popup-end-error','popup-billing-type-error'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.textContent = '';
-  });
-  // UIを更新
-  onPopupBillingTypeChange();
-}
+  let filtered = db.opportunities.filter(o =>
+    matchesScope(o) &&
+    inPeriod(o) &&
+    (!q  || o.name.toLowerCase().includes(q) || o.customer.toLowerCase().includes(q) || (o.id||'').toLowerCase().includes(q) || (o.owner||'').toLowerCase().includes(q)) &&
+    (!sf || o.stage === sf) &&
+    (!rf || o.recog === rf) &&
+    (!of || o.owner === of) &&
+    (!df || o.dept  === df)
+  );
 
-function saveContractDatePopup() {
-  const contractDate  = document.getElementById('popup-contract-date').value;
-  const contractEnd   = document.getElementById('popup-contract-end').value;
-  const billingType   = document.getElementById('popup-billing-type')?.value || '';
-  const billingSite   = parseInt(document.getElementById('popup-billing-site')?.value || '0') || 0;
-  const billingDate   = document.getElementById('popup-billing-date')?.value || '';
-  const nextBilDate   = document.getElementById('popup-next-billing-date')?.value || '';
-  const paymentDue    = document.getElementById('popup-payment-due')?.value || '';
-  const billingMemo   = document.getElementById('popup-billing-memo')?.value.trim() || '';
-  const errEl         = document.getElementById('popup-contract-error');
-  const endErrEl      = document.getElementById('popup-end-error');
-  const btErrEl       = document.getElementById('popup-billing-type-error');
-
-  // バリデーション
-  let hasError = false;
-  if(!contractDate) {
-    errEl.textContent = '契約日は必須です';
-    hasError = true;
-  } else { errEl.textContent = ''; }
-  if(billingType === 'monthly' && !contractEnd) {
-    endErrEl.textContent = '月次売上計上の場合、契約終了日は必須です';
-    hasError = true;
-  } else { endErrEl.textContent = ''; }
-  if(!billingType) {
-    btErrEl.textContent = '請求タイプは必須です';
-    hasError = true;
-  } else { btErrEl.textContent = ''; }
-  if(hasError) return;
-
-  const oppId = _contractDateOppId;
-  console.log('[Contract Save] oppId:', oppId, '_contractDateOppId:', _contractDateOppId);
-  if(oppId && oppId !== '__new__') {
-    // 既存案件に書き込む
-    const idx = db.opportunities.findIndex(o => o.id === oppId);
-    if(idx >= 0) {
-      db.opportunities[idx].contractDate    = contractDate;
-      db.opportunities[idx].contractEnd     = contractEnd;
-      // 売上回収時期
-      db.opportunities[idx].billingType     = billingType;
-      db.opportunities[idx].billingSite     = billingSite;
-      db.opportunities[idx].billingDate     = billingDate;
-      db.opportunities[idx].nextBillingDate = nextBilDate;
-      db.opportunities[idx].paymentDue      = paymentDue;
-      db.opportunities[idx].billingMemo     = billingMemo;
-      // 契約書アップロード → 受注に変更
-      const wasWon = db.opportunities[idx].stage === '受注';
-      db.opportunities[idx].stage = '受注';
-      db.opportunities[idx].prob  = 100;
-      db.opportunities[idx].lastUpdated = new Date().toISOString().split('T')[0];
-      save();
-      closeModal('contract-date-popup');
-      toast(wasWon ? '契約日を保存しました' : '🎉 受注登録しました！', 'success');
-      // 請求予定日が確定した場合、当該月の請求額を自動更新
-      const _savedOpp = db.opportunities[idx];
-      if(_savedOpp && _savedOpp.billingDate) autoSetBillingFromOpp(_savedOpp);
-      if(currentDetailOppId === oppId) showOppDetail(oppId);
-      renderOpportunities();
-      renderDashboard();
-      // クラッカー表示（新規受注のみ・600ms後）
-      if(!wasWon) setTimeout(() => showCrackerAnimation(), 600);
-    }
-  } else {
-    window._pendingContractDate    = contractDate;
-    window._pendingContractEnd     = contractEnd;
-    window._pendingBillingType     = billingType;
-    window._pendingBillingSite     = billingSite;
-    window._pendingBillingDate     = billingDate;
-    window._pendingNextBilDate     = nextBilDate;
-    window._pendingPaymentDue      = paymentDue;
-    window._pendingBillingMemo     = billingMemo;
-    toast('契約時必要事項を設定しました（案件保存時に反映されます）', 'success');
-    closeModal('contract-date-popup');
-  }
-}
-
-// ============================================================
-// 入金管理
-// ============================================================
-let paymentSortKey = 'month';
-let paymentSortDir = 1;  // 1=降順（新しい/大きい順）, -1=昇順
-
-function initPaymentMonthSel() {
-  // 月ラベルを更新
-  const lbl = document.getElementById('payment-month-label');
-  if(lbl) {
-    const [y, m] = currentPaymentMonth.split('-');
-    lbl.textContent = `${y}年${parseInt(m)}月`;
-  }
-  // ピッカーの値を同期
-  const picker = document.getElementById('payment-month-picker-hidden');
-  if(picker) picker.value = currentPaymentMonth;
-}
-
-function sortPayment(key) {
-  if(paymentSortKey === key) {
-    paymentSortDir *= -1;
-  } else {
-    paymentSortKey = key;
-    // 年月・数値系はデフォルト降順、文字列系は昇順
-    paymentSortDir = (key === 'month' || key === 'billing' || key === 'cash' || key === 'uncollected') ? 1 : -1;
-  }
-  renderPayment();
-}
-
-function renderPayment() {
-  initPaymentMonthSel();
-  const statusFilter = document.getElementById('payment-status-filter')?.value || '';
-  const q           = (document.getElementById('payment-search')?.value || '').toLowerCase();
-
-  // 対象月リスト: currentPaymentMonth の単月表示
-  const months = [currentPaymentMonth];
-
-  // 行データを生成
-  const rows = [];
-  months.forEach(ym => {
-    const monthData = db.monthly[ym] || {};
-    db.opportunities.forEach(o => {
-      if(!matchesScope(o)) return;
-      const m = monthData[o.id] || {};
-      const billing     = m.billing || 0;
-      const cash        = m.cash    || 0;
-      const sales       = m.sales   || 0;
-      if(sales === 0 && billing === 0 && cash === 0) return;  // データなし行は除外
-
-      // ステータス判定
-      let status = 'none';
-      if(billing === 0 && sales > 0) status = 'unpaid';
-      else if(billing > 0 && cash === 0) status = 'billed';
-      else if(billing > 0 && cash > 0 && cash < billing) status = 'partial';
-      else if(billing > 0 && cash >= billing) status = 'done';
-      else return;
-
-      if(statusFilter && status !== statusFilter) return;
-      if(q && !o.name.toLowerCase().includes(q) && !(o.customer||'').toLowerCase().includes(q)) return;
-
-      // 請求書PDFの保存日を請求日として取得
-      const invFiles = getPdfFiles(o.id, 'invoice');
-      // ファイル名に年月が含まれるものを優先、なければ最新の保存日
-      let billingDateFromInv = '';
-      if(invFiles.length > 0) {
-        // ym（例: '2025-10'）に対応する請求書を探す
-        const ymKey = ym.replace('-','');  // '202510'
-        const matched = invFiles.find(f => f.name && f.name.includes(ymKey));
-        const target  = matched || invFiles[invFiles.length - 1];
-        if(target?.date) billingDateFromInv = target.date.split('T')[0];
-      }
-      rows.push({
-        ym, o, billing, cash, sales,
-        uncollected: billing - cash,
-        status,
-        billingDate: m.billingDate || billingDateFromInv,
-        paymentDate: m.paymentDate || '',
-        memo:        m.paymentMemo || '',
-      });
-    });
-  });
-
-  // ソート
-  rows.sort((a, b) => {
+  // ソート適用
+  filtered = [...filtered].sort((a, b) => {
     let va, vb;
-    switch(paymentSortKey) {
-      // dir=1:降順(新/大), dir=-1:昇順(古/小)
-      case 'month':       return paymentSortDir === 1 ? b.ym.localeCompare(a.ym) : a.ym.localeCompare(b.ym);
-      case 'customer':    return paymentSortDir === 1 ? (b.o.customer||'').localeCompare(a.o.customer||'') : (a.o.customer||'').localeCompare(b.o.customer||'');
-      case 'name':        return paymentSortDir === 1 ? b.o.name.localeCompare(a.o.name) : a.o.name.localeCompare(b.o.name);
-      case 'billing':     return paymentSortDir === 1 ? b.billing - a.billing : a.billing - b.billing;
-      case 'cash':        return paymentSortDir === 1 ? b.cash - a.cash : a.cash - b.cash;
-      case 'uncollected': return paymentSortDir === 1 ? b.uncollected - a.uncollected : a.uncollected - b.uncollected;
-      default:            return b.ym.localeCompare(a.ym);
-    }
+    if(oppSortKey === 'weighted') { va = a.amount*a.prob/100; vb = b.amount*b.prob/100; }
+    else { va = (a[oppSortKey]??''); vb = (b[oppSortKey]??''); }
+    if(typeof va === 'number') return (va - vb) * oppSortDir;
+    return String(va).localeCompare(String(vb), 'ja') * oppSortDir;
   });
-
-  // サマリー
-  const totalBilling     = rows.reduce((s, r) => s + r.billing, 0);
-  const totalCash        = rows.reduce((s, r) => s + r.cash, 0);
-  const totalUncollected = rows.reduce((s, r) => s + r.uncollected, 0);
-  const billedCount      = rows.filter(r => r.status === 'billed').length;
-  document.getElementById('payment-summary').innerHTML = `
-    <div class="metric-card blue"><div class="metric-label">請求総額</div><div class="metric-value">${fmt(totalBilling)}</div></div>
-    <div class="metric-card green"><div class="metric-label">入金済</div><div class="metric-value">${fmt(totalCash)}</div></div>
-    <div class="metric-card red"><div class="metric-label">未回収額</div><div class="metric-value">${fmt(totalUncollected)}</div></div>
-    <div class="metric-card amber"><div class="metric-label">未入金件数</div><div class="metric-value">${billedCount}件</div></div>
+  const totalAmt = filtered.reduce((s,o)=>s+o.amount,0);
+  const weighted = filtered.reduce((s,o)=>s+o.amount*o.prob/100,0);
+  document.getElementById('opp-metrics').innerHTML = `
+    <div class="metric-card blue"><div class="metric-label">表示件数</div><div class="metric-value">${filtered.length}件</div></div>
+    <div class="metric-card purple"><div class="metric-label">総契約額</div><div class="metric-value">${fmtM(totalAmt)}</div></div>
+    <div class="metric-card green"><div class="metric-label">加重合計</div><div class="metric-value">${fmtM(weighted)}</div></div>
+    <div class="metric-card amber"><div class="metric-label">受注案件</div><div class="metric-value">${filtered.filter(o=>o.stage==='受注').length}件</div></div>
   `;
+  document.getElementById('opp-total-amount').textContent = fmt(totalAmt);
+  document.getElementById('opp-weighted-amount').textContent = fmt(weighted);
+  selectedOpps.clear();
+  document.getElementById('opp-bulk-bar')?.classList.remove('show');
+  const opSel = document.getElementById('opp-select-all');
+  if(opSel){ opSel.checked = false; opSel.indeterminate = false; }
+  document.getElementById('opp-tbody').innerHTML = filtered.length ? filtered.map(o=>`
+    <tr id="opp-row-${o.id}">
+      <td class="chk-col"><input type="checkbox" class="row-chk" data-id="${o.id}" onchange="onOppChk(this,'${o.id}')"></td>
+      <td style="font-size:11px;color:var(--text-muted);font-family:monospace;">${o.id}</td>
+      <td><a href="#" style="color:var(--accent);text-decoration:none;font-weight:500;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a></td>
+      <td>${o.customer}</td>
+      <td>${stageBadge(o.stage)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <div class="progress-bar"><div class="progress-fill" style="width:${o.prob}%;background:${o.prob>=70?'var(--green)':o.prob>=40?'var(--amber)':'var(--red)'}"></div></div>
+          <span style="font-size:12px;">${o.prob}%</span>
+        </div>
+      </td>
+      <td class="fw-500 text-right">${fmt(o.amount)}</td>
+      <td class="text-right" style="color:var(--text-secondary);">${fmt(o.amount*o.prob/100)}</td>
+      <td>${recogBadge(o.recog)}</td>
+      <td style="font-size:12px;">${o.start||'—'}</td>
+      <td style="font-size:12px;">${o.end||'—'}</td>
+      <td style="font-size:12px;">${o.owner}</td>
+      <td>${(()=>{const na=o.nextAction;if(!na?.date&&!na?.action)return '<span style="color:var(--text-muted);font-size:11px;">—</span>';const tod=new Date().toISOString().split('T')[0];const ov=na.date&&na.date<=tod;const pc={urgent:'#E24B4A',high:'#BA7517',normal:'#185FA5'}[na.priority||'normal'];return '<div style="font-size:11px;"><div style="font-weight:600;color:'+(ov?'#E24B4A':pc)+';"'+'>'+(na.date||'—')+(ov?' ⚠':'')+'</div><div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">'+(na.action||'')+'</div></div>';})()}</td>
+      <td>
+        <div style="display:flex;gap:4px;">
+          <button class="btn btn-sm" onclick="populateOppModal(db.opportunities.find(x=>x.id==='${o.id}'));document.getElementById('modal-opp').classList.add('open');">編集</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteOpportunity('${o.id}')">×</button>
+        </div>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="14"><div class="empty-state"><p>案件がありません</p></div></td></tr>';
+}
 
-  // ステータスバッジ
-  const statusBadge = s => ({
-    unpaid:  '<span class="badge badge-amber">未請求</span>',
-    billed:  '<span class="badge badge-red">未入金</span>',
-    partial: '<span class="badge badge-amber">一部入金</span>',
-    done:    '<span class="badge badge-green">入金済</span>',
-  }[s] || '');
+// ============================================================
+// RENDER: MONTHLY
+// ============================================================
+function changeMonth(delta) {
+  if(delta < 0) currentMonth = prevMonthKey(currentMonth);
+  else currentMonth = nextMonthKey(currentMonth);
+  // ピッカーのvalueを同期
+  const picker = document.getElementById('monthly-month-picker');
+  if(picker) picker.value = currentMonth;
+  renderMonthly();
+}
 
-  // テーブル描画
-  // 顧客でグループ化
-  const _custGroups = {};
-  rows.forEach(r => {
-    const cust = r.o.customer || '—';
-    if(!_custGroups[cust]) _custGroups[cust] = [];
-    _custGroups[cust].push(r);
-  });
-  // 顧客名をソート（未回収額降順）
-  const _custNames = Object.keys(_custGroups).sort((a, b) => {
-    const sumA = _custGroups[a].reduce((s, r) => s + r.uncollected, 0);
-    const sumB = _custGroups[b].reduce((s, r) => s + r.uncollected, 0);
-    return sumB - sumA;
-  });
-  const _html = _custNames.map(cust => {
-    const custRows = _custGroups[cust];
-    const sumBilling    = custRows.reduce((s, r) => s + r.billing, 0);
-    const sumCash       = custRows.reduce((s, r) => s + r.cash, 0);
-    const sumUncollected = custRows.reduce((s, r) => s + r.uncollected, 0);
-    const groupId = 'pg-' + cust.replace(/[^a-zA-Z0-9]/g, '_');
-    const allDone = custRows.every(r => r.status === 'done');
-    // 顧客ヘッダー行
-    const headerRow = `
-      <tr class="payment-group-header" onclick="togglePaymentGroup('${groupId}')" style="cursor:pointer;background:var(--bg-secondary);border-top:2px solid var(--border-medium);">
-        <td colspan="2" style="padding:8px 10px;font-weight:700;font-size:13px;">
-          <span id="${groupId}-icon" style="margin-right:6px;font-size:11px;">▼</span>${cust}
-        </td>
-        <td style="padding:8px 10px;font-size:11px;color:var(--text-muted);">${custRows.length}件</td>
-        <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(sumBilling)}<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込${fmt(Math.round(sumBilling*1.1*10000)/10000)}</div></td>
-        <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--green);">${fmt(sumCash)}<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込${fmt(Math.round(sumCash*1.1*10000)/10000)}</div></td>
-        <td style="padding:8px 10px;text-align:right;font-weight:700;color:${sumUncollected>0?'var(--red-dark)':'var(--text-muted)'};">¥${sumUncollected.toLocaleString()}万<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込¥${Math.round(sumUncollected*1.1*10)/10}万</div></td>
-        <td colspan="5" style="padding:8px 10px;text-align:center;">${allDone?'<span class="badge badge-green">完了</span>':''}</td>
-      </tr>`;
-    // 案件詳細行
-    const detailRows = custRows.map(r => `
-      <tr class="payment-group-row" data-group="${groupId}" style="${r.status==='done'?'opacity:0.6':''}background:var(--bg-primary);">
-        <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">${monthLabel(r.ym)}</td>
-        <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${r.o.owner||'—'}</td>
-        <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${r.o.id}');return false;">${r.o.name}</a></td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;">${fmt(r.billing)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.billing*1.1*10000)/10000)}</div></td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;color:var(--green);">${fmt(r.cash)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.cash*1.1*10000)/10000)}</div></td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;color:${r.uncollected>0?'var(--red-dark)':'var(--text-muted)'};">${fmt(r.uncollected)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.uncollected*1.1*10000)/10000)}</div></td>
-        <td style="padding:5px 8px;text-align:center;">${statusBadge(r.status)}</td>
-        <td style="padding:5px 8px;text-align:center;font-size:11px;">${r.billingDate||'—'}</td>
-        <td style="padding:5px 8px;text-align:center;">
-          <input type="date" value="${r.paymentDate || nextMonthEndBizDay(r.billingDate || r.ym + '-01')}" style="font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:2px 4px;width:110px;"
-            onchange="updatePaymentDate('${r.o.id}','${r.ym}',this.value)">
-        </td>
-        <td style="padding:5px 8px;text-align:center;">
-          ${r.status!=='done' ? `<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;background:var(--green);color:#fff;border:none;"
-            onclick="markAsPaid('${r.o.id}','${r.ym}')">入金確認</button>` : ''}
-        </td>
-        <td></td>
-      </tr>`).join('');
-    return headerRow + detailRows;
+
+// 入金管理の月ナビ
+function changePaymentMonth(delta) {
+  if(delta < 0) currentPaymentMonth = prevMonthKey(currentPaymentMonth);
+  else currentPaymentMonth = nextMonthKey(currentPaymentMonth);
+  renderPayment();
+}
+function changePaymentMonthPicker(val) {
+  if(!val) return;
+  currentPaymentMonth = val;
+  renderPayment();
+}
+function changeMonthPicker(val) {
+  if(!val) return;
+  currentMonth = val;
+  renderMonthly();
+}
+
+
+// ============================================================
+// 月次管理 担当者チェックボックスフィルター
+// ============================================================
+// selectedOwners === null  → 全員表示（初期状態・全選択）
+// selectedOwners = Set([A,B,...]) → そのセットの担当者のみ表示
+// selectedOwners = Set([]) → 誰も選択なし（0件）
+let selectedOwners = null;
+
+function _getOwnerList() {
+  return [...new Set(db.opportunities.map(o => o.owner).filter(Boolean))].sort();
+}
+
+function toggleOwnerFilter(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('monthly-owner-filter-dropdown');
+  if(!dd) return;
+  dd.classList.toggle('open');
+  if(dd.classList.contains('open')) buildOwnerList();
+}
+
+// ドロップダウン外クリックで閉じる
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('monthly-owner-filter-wrap');
+  if(wrap && !wrap.contains(e.target)) {
+    document.getElementById('monthly-owner-filter-dropdown')?.classList.remove('open');
+  }
+});
+
+function buildOwnerList() {
+  const owners = _getOwnerList();
+  const listEl = document.getElementById('monthly-owner-list');
+  if(!listEl) return;
+  listEl.innerHTML = owners.map(owner => {
+    // null=全員, または Set内にある場合はチェック
+    // null=全員チェック、空Set=全解除、Set要素あり=その担当者のみ
+    const checked = selectedOwners === null || (selectedOwners.size > 0 && selectedOwners.has(owner));
+    return `<label class="owner-filter-item">
+      <input type="checkbox" ${checked ? 'checked' : ''}
+        onchange="onOwnerCheck(this, '${owner.replace(/'/g, "\'")}')">
+      <span>${owner}</span>
+    </label>`;
   }).join('');
-  document.getElementById('payment-tbody').innerHTML = _html || '<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-muted);">データがありません</td></tr>';
 }
 
-// 入金管理の顧客グループ展開/折りたたみ
-function togglePaymentGroup(groupId) {
-  const rows = document.querySelectorAll(`[data-group="${groupId}"]`);
-  const icon = document.getElementById(`${groupId}-icon`);
-  const isHidden = rows.length > 0 && rows[0].style.display === 'none';
-  rows.forEach(r => r.style.display = isHidden ? '' : 'none');
-  if(icon) icon.textContent = isHidden ? '▼' : '▶';
-}
-
-// 請求日を更新
-function updateBillingDate(oppId, ym, date) {
-  if(!db.monthly[ym]) db.monthly[ym] = {};
-  if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
-  const m = db.monthly[ym][oppId];
-  m.billingDate = date;
-
-  // 請求日確定時: 請求額が未入力の場合は案件の月次按分額を自動反映
-  if(date && !(m.billing > 0)) {
-    const opp = db.opportunities.find(o => o.id === oppId);
-    if(opp && opp.amount > 0) {
-      if(opp.billingType === 'monthly' && opp.start && opp.end) {
-        // 月次按分: 契約期間の月数で割る
-        const startYm = opp.start.slice(0,7);
-        const endYm   = opp.end.slice(0,7);
-        const totalMonths = monthsBetween(startYm, endYm) + 1;
-        if(totalMonths > 0) {
-          m.billing = Math.round((opp.amount / totalMonths) * 10000) / 10000;
-        }
-      } else if(opp.billingType === 'lump' || opp.billingType === 'milestone' || !opp.billingType) {
-        // 一括/マイルストーン/未設定: 案件総額を請求額にセット
-        m.billing = opp.amount;
-      }
+function onOwnerCheck(el, owner) {
+  const owners = _getOwnerList();
+  if(el.checked) {
+    if(selectedOwners === null) {
+      // 全員チェック状態: そのままnull（変化なし）
+    } else {
+      selectedOwners.add(owner);
+      // 全員揃ったら null に戻す（全選択状態）
+      if(selectedOwners.size === owners.length) selectedOwners = null;
+    }
+  } else {
+    // チェックを外す
+    if(selectedOwners === null) {
+      // null（全員）から1人外す → その人以外の全員Set
+      selectedOwners = new Set(owners);
+      selectedOwners.delete(owner);
+    } else {
+      selectedOwners.delete(owner);
     }
   }
+  updateOwnerBadge();
+  renderMonthly();
+}
 
-  // 入金予定日: 未設定の場合は翌月末営業日を自動計算
-  if(date && !m.paymentDate) {
-    m.paymentDate = nextMonthEndBizDay(date);
+function selectAllOwners() {
+  selectedOwners = null; // 全員表示
+  buildOwnerList();
+  updateOwnerBadge();
+  renderMonthly();
+}
+
+function clearOwners() {
+  // 全解除 = 全チェックOFF = 空Set → 担当者フィルターで全件除外（0件表示）
+  selectedOwners = new Set();
+  buildOwnerList();
+  updateOwnerBadge();
+  renderMonthly();
+}
+
+function updateOwnerBadge() {
+  const badge = document.getElementById('monthly-owner-badge');
+  const label = document.getElementById('monthly-owner-filter-label');
+  if(!badge || !label) return;
+  if(selectedOwners === null) {
+    // 全員選択状態（全チェックON）
+    badge.style.display = 'none';
+    label.textContent = '担当者';
+  } else if(selectedOwners.size === 0) {
+    // 全解除状態（全チェックOFF）→ 0件表示
+    badge.style.display = '';
+    badge.textContent = '0';
+    badge.style.background = '#888';
+    label.textContent = '担当者';
+  } else {
+    // 一部選択
+    badge.style.display = '';
+    badge.textContent = selectedOwners.size;
+    badge.style.background = 'var(--accent)';
+    const names = [...selectedOwners];
+    label.textContent = names.length === 1 ? names[0].slice(0, 5) : '担当者';
   }
-
-  save();
-  renderPayment();
-  toast('請求日を更新しました', 'success');
 }
 
-// 入金日を更新
-function updatePaymentDate(oppId, ym, date) {
-  if(!db.monthly[ym]) db.monthly[ym] = {};
-  if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
-  db.monthly[ym][oppId].paymentDate = date;
-  save();
-  toast('入金日を更新しました', 'success');
-}
-
-// 入金確認（billing == cash にする）
-function markAsPaid(oppId, ym) {
-  const m = (db.monthly[ym]||{})[oppId]||{};
-  if(!confirm(`${monthLabel(ym)} の入金を確認済みにしますか？\n請求額: ${fmt(m.billing||0)} → 入金額に設定されます`)) return;
-  if(!db.monthly[ym]) db.monthly[ym] = {};
-  if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
-  db.monthly[ym][oppId].cash = db.monthly[ym][oppId].billing || 0;
-  // 入金日デフォルト: 請求日の翌月末営業日（未設定なら今日）
-  const _billingDate = db.monthly[ym][oppId].billingDate || '';
-  db.monthly[ym][oppId].paymentDate = db.monthly[ym][oppId].paymentDate ||
-    nextMonthEndBizDay(_billingDate || ym + '-01');
-  save();
-  toast('入金済にしました', 'success');
-  renderPayment();
-}
-
-// ============================================================
-// キャッシュフロー予測
-// ============================================================
-// ルール: 請求予定日の翌月最終営業日に請求予定額が入金されるものとする
-// ============================================================

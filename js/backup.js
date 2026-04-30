@@ -1,554 +1,568 @@
-const MAX_AUTO_BACKUPS = 5;
-let _importData = null;
+// ============================================================
+function renderDashboard() {
+  // 月セレクトを常に最新データで更新
+  initDashMonthSel();
+  const msr = db.monthlySummary || {};
+  const monthRange = getMonthRange();
+  const prevRange  = getPrevMonthRange();
 
-// ─ エクスポート
-function exportBackup(mode) {
-  if(!currentUser || (currentUser.role !== '管理者' && currentUser.dept !== '管理部')) {
-    toast('この操作は管理者のみ利用できます', 'error'); return;
+  // 確度フィルター
+  const probFilterVal = document.getElementById('dash-prob-filter')?.value || '';
+  function matchesProb(o) {
+    if(!probFilterVal) return true;
+    const p = o.prob;
+    if(probFilterVal === '100')  return p === 100;
+    if(probFilterVal === '80+')  return p >= 80;
+    if(probFilterVal === '50+')  return p >= 50;
+    if(probFilterVal === '20+')  return p >= 20;
+    if(probFilterVal === '0')    return p === 0;
+    return true;
   }
-  const now    = new Date();
-  const pad    = n => String(n).padStart(2, '0');
-  const stamp  = now.getFullYear() + pad(now.getMonth()+1) + pad(now.getDate()) +
-                 '_' + pad(now.getHours()) + pad(now.getMinutes());
 
-  let data, filename;
-  if(mode === 'opportunities') {
-    data     = { opportunities: db.opportunities, customers: db.customers, exportedAt: now.toISOString(), mode };
-    filename = `sales_opportunities_${stamp}.json`;
-  } else if(mode === 'monthly') {
-    data     = { monthly: db.monthly, monthlySummary: db.monthlySummary, exportedAt: now.toISOString(), mode };
-    filename = `sales_monthly_${stamp}.json`;
+  const allOpps = db.opportunities.filter(matchesScope); // スコープフィルター
+  const opps    = allOpps.filter(matchesProb); // 確度フィルター適用
+
+  // 期間内の売上・請求・入金
+  // 確度フィルターがある場合は案件別monthly合計、なければmonthlySummary優先
+  let totalSales   = 0, totalBilling = 0, totalCash = 0;
+  if(probFilterVal) {
+    // 確度フィルター適用: 案件別に集計
+    monthRange.forEach(mk => {
+      const md = db.monthly[mk] || {};
+      opps.forEach(o => {
+        const m = md[o.id] || {};
+        totalSales   += m.sales   || 0;
+        totalBilling += m.billing || 0;
+        totalCash    += m.cash    || 0;
+      });
+    });
   } else {
-    data     = { ...db, exportedAt: now.toISOString(), mode: 'full', storeKey: STORE_KEY };
-    filename = `sales_backup_${stamp}.json`;
-  }
-
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  const infoEl = document.getElementById('backup-export-info');
-  if(infoEl) {
-    const size = (JSON.stringify(data).length / 1024).toFixed(1);
-    infoEl.textContent = `✓ ${filename}（${size} KB）をダウンロードしました`;
-    infoEl.style.color = 'var(--green)';
-    setTimeout(() => { infoEl.textContent = ''; }, 4000);
-  }
-  toast(`${filename} をエクスポートしました`, 'success');
-}
-
-// ─ インポート（ファイル選択）
-function importBackup(input) {
-  if(!currentUser || (currentUser.role !== '管理者' && currentUser.dept !== '管理部')) {
-    toast('この操作は管理者のみ利用できます', 'error'); return;
-  }
-  const file = input.files[0];
-  if(!file) return;
-
-  document.getElementById('backup-import-filename').textContent = file.name;
-
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const data = JSON.parse(e.target.result);
-      _importData = data;
-
-      const info = [];
-      if(data.opportunities) info.push(`案件: ${data.opportunities.length}件`);
-      if(data.customers)     info.push(`顧客: ${data.customers.length}件`);
-      if(data.users)         info.push(`ユーザー: ${data.users.length}件`);
-      if(data.monthly)       info.push(`月次データ: ${Object.keys(data.monthly).length}ヶ月`);
-      if(data.leads)         info.push(`リード: ${data.leads.length}件`);
-      if(data.exportedAt)    info.push(`エクスポート日時: ${new Date(data.exportedAt).toLocaleString('ja-JP')}`);
-      info.push(`モード: ${data.mode || 'full'}`);
-
-      document.getElementById('backup-import-info').innerHTML =
-        info.map(t => `<div style="margin-bottom:4px;">• ${t}</div>`).join('');
-      document.getElementById('backup-import-preview').style.display = '';
-    } catch(err) {
-      toast('JSONファイルの解析に失敗しました: ' + err.message, 'error');
-      _importData = null;
+    // フィルターなし: monthlySummary優先（高速）
+    totalSales   = monthRange.reduce((s,k) => s + (msr[k]?.salesTotal   || 0), 0);
+    totalBilling = monthRange.reduce((s,k) => s + (msr[k]?.billingTotal  || 0), 0);
+    totalCash    = monthRange.reduce((s,k) => s + (msr[k]?.cashTotal     || 0), 0);
+    // フォールバック
+    if(totalSales === 0) {
+      monthRange.forEach(mk => {
+        const md = db.monthly[mk] || {};
+        allOpps.forEach(o => {
+          const m = md[o.id] || {};
+          totalSales   += m.sales   || 0;
+          totalBilling += m.billing || 0;
+          totalCash    += m.cash    || 0;
+        });
+      });
     }
+  }
+
+  const prevSales = prevRange.reduce((s,k) => s + (msr[k]?.salesTotal || 0), 0);
+  const pipeline  = opps.filter(o => !['受注','失注'].includes(o.stage)).reduce((s,o) => s + o.amount, 0);
+  const weighted  = opps.reduce((s,o) => s + o.amount * o.prob / 100, 0);
+  const yoy       = prevSales > 0 ? Math.round((totalSales - prevSales) / prevSales * 100) : 0;
+  const yoySign   = yoy >= 0 ? '▲' : '▼';
+  const yoyCls    = yoy >= 0 ? 'up' : 'down';
+  const modeLabel = dashMode === 'fy' ? '年度' : dashMode === 'quarter' ? '四半期' : '当月';
+  const probLabel = probFilterVal
+    ? (probFilterVal==='100' ? '確度100%' : probFilterVal==='80+'  ? '確度80%+'
+     : probFilterVal==='50+' ? '確度50%+' : probFilterVal==='20+'  ? '確度20%+' : '確度0%')
+    : '';
+  const filterSuffix = probLabel ? ` (${probLabel})` : '';
+
+  // 期間ラベル更新
+  const periodLabelEl = document.getElementById('dash-period-label');
+  if(periodLabelEl) periodLabelEl.textContent = getPeriodLabel();
+
+  // 予算達成率をKPIに含める
+  const budgetForPeriod = monthRange.reduce((s,k) => s + ((db.monthlyBudget||{})[k]||0), 0);
+  const achv = budgetForPeriod > 0 ? Math.round(totalSales / budgetForPeriod * 100) : null;
+  const budgetGap = budgetForPeriod > 0 ? totalSales - budgetForPeriod : null;
+
+  // KPIカード
+  // ── 受注率ファネル計算（TEST案件除外） ──
+  const _nonTestOpps = db.opportunities.filter(o => !o.name.includes('TEST'));
+  // 各ステージに到達した案件数（stageHistory を参照、なければ現在のstageで判定）
+  const _hasStage = (o, stage) => {
+    if(o.stageHistory?.some(h => h.stage === stage)) return true;
+    const order = ['リード','提案中','見積提出','交渉中','受注','失注'];
+    const targetIdx = order.indexOf(stage);
+    const currentIdx = order.indexOf(o.stage);
+    return currentIdx >= targetIdx && targetIdx >= 0;
   };
-  reader.readAsText(file);
-}
+  const _cntLead     = _nonTestOpps.length; // 案件化数（全案件 = リード段階以上）
+  const _cntProposal = _nonTestOpps.filter(o => _hasStage(o, '提案中')).length;
+  const _cntQuote    = _nonTestOpps.filter(o => _hasStage(o, '見積提出')).length;
+  const _cntNego     = _nonTestOpps.filter(o => _hasStage(o, '交渉中')).length;
+  const _cntWon      = _nonTestOpps.filter(o => _hasStage(o, '受注')).length;
+  const _rate = (n, d) => d > 0 ? Math.round(n / d * 100) : 0;
+  const winRateCard = `
+    <div class="metric-card" style="grid-column:1/-1;background:var(--bg-secondary);border:1px solid var(--border-medium);">
+      <div class="metric-label" style="font-size:12px;font-weight:600;margin-bottom:8px;">📊 受注率ファネル（TEST案件除外）</div>
+      <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;">
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntLead}</div>
+          <div style="font-size:10px;color:var(--text-muted);">案件化</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntProposal,_cntLead)}%</div>
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntProposal}</div>
+          <div style="font-size:10px;color:var(--text-muted);">提案</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntQuote,_cntProposal)}%</div>
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntQuote}</div>
+          <div style="font-size:10px;color:var(--text-muted);">見積</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntNego,_cntQuote)}%</div>
+        <div style="text-align:center;padding:6px 10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntNego}</div>
+          <div style="font-size:10px;color:var(--text-muted);">交渉</div>
+        </div>
+        <div style="color:var(--text-muted);font-size:11px;">→<br>${_rate(_cntWon,_cntNego)}%</div>
+        <div style="text-align:center;padding:6px 10px;background:var(--accent-light);border-radius:8px;">
+          <div style="font-size:18px;font-weight:700;color:var(--accent);">${_cntWon}</div>
+          <div style="font-size:10px;color:var(--text-muted);">受注</div>
+        </div>
+        <div style="margin-left:16px;padding:6px 12px;background:${_rate(_cntWon,_cntLead)>=30?'var(--green-light,#f0fdf4)':'var(--bg-primary)'};border-radius:8px;border:1px solid var(--border-medium);">
+          <div style="font-size:22px;font-weight:800;color:${_rate(_cntWon,_cntLead)>=30?'var(--green-dark)':'var(--accent)'};">受注率 ${_rate(_cntWon,_cntLead)}%</div>
+          <div style="font-size:10px;color:var(--text-muted);">案件化 → 受注</div>
+        </div>
+      </div>
+    </div>`;
 
-// ─ インポート確定
-function confirmImport() {
-  if(!_importData) return;
-  if(!confirm('現在のデータをインポートデータで上書きします。よろしいですか？')) return;
+  document.getElementById('dash-metrics').innerHTML = `
+    <div class="metric-card blue">
+      <div class="metric-label">売上実績（${modeLabel}${filterSuffix}）</div>
+      <div class="metric-value">${fmtM(totalSales)}</div>
+      <div class="metric-change ${yoyCls}">${yoySign}${Math.abs(yoy)}% 前期比</div>
+    </div>
+    ${budgetForPeriod > 0 ? `
+    <div class="metric-card ${achv>=100?'green':achv>=80?'blue':'amber'}">
+      <div class="metric-label">予算達成率</div>
+      <div class="metric-value">${achv}%</div>
+      <div class="metric-change ${budgetGap>=0?'up':'down'}" style="color:${budgetGap>=0?'var(--green-dark)':'var(--red-dark)'};">
+        ${budgetGap>=0?'▲':'▼'}¥${Math.abs(budgetGap).toLocaleString()}万 ${budgetGap>=0?'超過':'未達'}
+      </div>
+    </div>` : ''}
+    <div class="metric-card green">
+      <div class="metric-label">請求額（${modeLabel}）</div>
+      <div class="metric-value">${fmtM(totalBilling)}</div>
+      <div class="metric-change neutral">売上比 ${totalSales ? Math.round(totalBilling/totalSales*100) : 0}%</div>
+    </div>
+    <div class="metric-card amber">
+      <div class="metric-label">未回収残高</div>
+      <div class="metric-value">${fmtM(totalBilling - totalCash)}</div>
+      <div class="metric-change neutral">請求 − 入金</div>
+    </div>
+    <div class="metric-card purple">
+      <div class="metric-label">パイプライン</div>
+      <div class="metric-value">${fmtM(pipeline)}</div>
+      <div class="metric-change neutral">進行中案件</div>
+    </div>
+    <div class="metric-card green">
+      <div class="metric-label">確度加重 着地</div>
+      <div class="metric-value">${fmtM(Math.round(weighted))}</div>
+      <div class="metric-change neutral">全案件加重</div>
+    </div>
+    <div class="metric-card ${yoy >= 0 ? 'green' : 'red'}">
+      <div class="metric-label">前期比</div>
+      <div class="metric-value" style="color:${yoy >= 0 ? 'var(--green-dark)' : 'var(--red-dark)'};">${yoySign}${Math.abs(yoy)}%</div>
+      <div class="metric-change neutral">¥${(prevSales/100).toFixed(1)}M → ¥${(totalSales/100).toFixed(1)}M</div>
+    </div>
+    ${winRateCard}
+  `;
 
-  // 現在のデータを自動バックアップに保存してから上書き
-  createAutoBackup(false);
-
-  const mode = _importData.mode || 'full';
-  if(mode === 'opportunities') {
-    if(_importData.opportunities) db.opportunities = _importData.opportunities;
-    if(_importData.customers)     db.customers     = _importData.customers;
-  } else if(mode === 'monthly') {
-    if(_importData.monthly)        db.monthly        = _importData.monthly;
-    if(_importData.monthlySummary) db.monthlySummary = _importData.monthlySummary;
+  // 売上推移チャート（確度別 積み上げ棒グラフ）
+  const chartTitle = document.getElementById('dash-chart-title');
+  let chartRange;
+  if(dashMode === 'month') {
+    chartRange = Array.from({length:13}, (_,i) => addMonths(dashMonth, -6 + i));
+    if(chartTitle) chartTitle.textContent = '月次売上推移（確度別）';
   } else {
-    // full: 全フィールドを上書き（storeKey等のメタデータは除く）
-    const skip = ['exportedAt', 'mode', 'storeKey'];
-    Object.keys(_importData).forEach(k => {
-      if(!skip.includes(k)) db[k] = _importData[k];
+    chartRange = monthRange;
+    if(chartTitle) chartTitle.textContent = '月次売上推移（確度別・' + getPeriodLabel() + '）';
+  }
+  const chartLabels = chartRange.map(k => { const [y,m] = k.split('-'); return y.slice(2)+'/'+parseInt(m); });
+
+  // 確度別設定
+  const PROB_LEVELS = [100, 80, 50, 20, 0];
+  const PROB_COLORS_CHART = { 100:'#1D9E75', 80:'#185FA5', 50:'#534AB7', 20:'#BA7517', 0:'#C8C7C4' };
+  const PROB_LABELS_CHART = { 100:'確度100%', 80:'確度80%', 50:'確度50%', 20:'確度20%', 0:'確度0%' };
+
+  // 月×確度 の売上を集計（monthly データから案件別）
+  const probDatasets = PROB_LEVELS.map(prob => ({
+    label: PROB_LABELS_CHART[prob],
+    data: chartRange.map(ym => {
+      const md = db.monthly[ym] || {};
+      return db.opportunities
+        .filter(o => o.prob === prob && matchesProb(o))
+        .reduce((s, o) => s + (md[o.id]?.sales || 0), 0);
+    }),
+    backgroundColor: PROB_COLORS_CHART[prob],
+    borderWidth: 0,
+    borderRadius: 2,
+    stack: 'sales',
+  }));
+
+  // 合計ライン
+  const totalLine = {
+    label: '合計',
+    type: 'line',
+    data: chartRange.map(ym => {
+      const md = db.monthly[ym] || {};
+      return opps.reduce((s, o) => s + (md[o.id]?.sales || 0), 0);
+    }),
+    borderColor: '#E24B4A',
+    borderWidth: 2,
+    borderDash: [4, 3],
+    pointRadius: 2,
+    tension: 0.3,
+    fill: false,
+    order: 0,
+  };
+
+  destroyChart('chartSales');
+  charts.chartSales = new Chart(document.getElementById('chartSales'), {
+    type: 'bar',
+    data: { labels: chartLabels, datasets: [...probDatasets, totalLine] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top',
+                  labels: { font: { size: 10 }, boxWidth: 12, padding: 6 } },
+        tooltip: { callbacks: {
+          label: ctx => ctx.dataset.label + ': ¥' + (ctx.parsed.y || 0).toLocaleString() + '万'
+        }}
+      },
+      scales: {
+        x: { stacked: true, ticks: { font: { size: 9 }, maxRotation: 45 }, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true,
+             ticks: { callback: v => '¥' + v + '万', font: { size: 10 }, maxTicksLimit: 6 },
+             grid: { color: 'rgba(0,0,0,0.04)' } }
+      }
+    }
+  });
+
+  // フロー（売上・請求・入金）
+  const flowTitle = document.getElementById('dash-flow-title');
+  if(flowTitle) flowTitle.textContent = '売上・請求・入金（' + modeLabel + '）';
+  destroyChart('chartFlow');
+  charts.chartFlow = new Chart(document.getElementById('chartFlow'), {
+    type: 'bar',
+    data: {labels:['売上計上','請求','入金'], datasets:[{data:[totalSales, totalBilling, totalCash], backgroundColor:['#185FA5','#1D9E75','#639922'], borderRadius:5}]},
+    options: {responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx => '¥'+ctx.parsed.y.toLocaleString()+'万'}}},
+      scales:{y:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万', font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}, x:{ticks:{font:{size:11}}, grid:{display:false}}}
+    }
+  });
+
+  // 担当者別売上（期間内）
+  // owner 名前を db.users で正規化（姓のみ→フルネーム等の表記ゆれを統一）
+  // email が同じユーザーは先頭のユーザーに統一（重複ユーザー対応）
+  const _uniqueUsers = [];
+  const _seenEmails = new Set();
+  db.users.filter(u=>u.active!==false).forEach(u => {
+    if(!_seenEmails.has(u.email)) { _seenEmails.add(u.email); _uniqueUsers.push(u); }
+  });
+  // 同一メールの別名マップ（例: ギブラン → Gibran）
+  const _emailToName = {};
+  db.users.forEach(u => { if(!_emailToName[u.email]) _emailToName[u.email] = u.name; });
+  const _normalizeOwner = (name) => {
+    if(!name) return '未設定';
+    // 完全一致
+    const exact = db.users.find(u => u.name === name);
+    if(exact) return _emailToName[exact.email] || exact.name;
+    // 部分一致（姓のみ or 名のみ）
+    const partial = db.users.find(u => u.name.includes(name) || name.includes(u.name));
+    if(partial) return _emailToName[partial.email] || partial.name;
+    return name; // マッチしなければそのまま
+  };
+  const ownerSales = {};
+  monthRange.forEach(mk => {
+    const md = db.monthly[mk] || {};
+    opps.forEach(o => {
+      const m = md[o.id] || {};
+      const ownerKey = _normalizeOwner(o.owner);
+      ownerSales[ownerKey] = (ownerSales[ownerKey] || 0) + (m.sales || 0);
+    });
+  });
+  const ownerEntries = Object.entries(ownerSales).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+  destroyChart('chartOwnerDash');
+  // 担当者別チャート（確度フィルター適用済みの opps を使用）
+  const elOD = document.getElementById('chartOwnerDash');
+  if(elOD && ownerEntries.length) {
+    charts.chartOwnerDash = new Chart(elOD, {
+      type:'bar',
+      data:{labels:ownerEntries.map(([k])=>k), datasets:[{label:'売上', data:ownerEntries.map(([,v])=>v), backgroundColor:OWNER_COLORS.slice(0, ownerEntries.length), borderRadius:4}]},
+      options:{responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>'¥'+ctx.parsed.x.toLocaleString()+'万'}}},
+        scales:{x:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万', font:{size:10}}}, y:{ticks:{font:{size:11}}, grid:{display:false}}}
+      }
     });
   }
 
-  save();
-  cancelImport();
-  toast('インポートが完了しました', 'success');
-  // ページをリロードして全画面を更新
-  setTimeout(() => location.reload(), 800);
-}
-
-function cancelImport() {
-  _importData = null;
-  document.getElementById('backup-import-preview').style.display = 'none';
-  document.getElementById('backup-import-filename').textContent = 'ファイル未選択';
-}
-
-// ─ 自動バックアップ
-function createAutoBackup(showToast = true) {
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
-  const now = new Date();
-  backups.unshift({
-    timestamp: now.toISOString(),
-    label: now.toLocaleString('ja-JP'),
-    data: JSON.parse(JSON.stringify(db)),
-    size: JSON.stringify(db).length
-  });
-  // 最大5世代
-  if(backups.length > MAX_AUTO_BACKUPS) backups.splice(MAX_AUTO_BACKUPS);
-  _storage.setItem(BACKUP_KEY, JSON.stringify(backups));
-  if(showToast) toast('バックアップを保存しました', 'success');
-  renderBackupHistory();
-}
-
-// ─ 自動バックアップから復元
-function restoreAutoBackup(index) {
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
-  const bk = backups[index];
-  if(!bk) return;
-  if(!confirm(`${bk.label} のバックアップに戻しますか？\n現在のデータは失われます。`)) return;
-  const skip = ['exportedAt', 'mode', 'storeKey'];
-  Object.keys(bk.data).forEach(k => {
-    if(!skip.includes(k)) db[k] = bk.data[k];
-  });
-  save();
-  toast('バックアップから復元しました', 'success');
-  setTimeout(() => location.reload(), 800);
-}
-
-// ─ 自動バックアップから個別エクスポート
-function exportAutoBackup(index) {
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
-  const bk = backups[index];
-  if(!bk) return;
-  const data = { ...bk.data, exportedAt: bk.timestamp, mode: 'full' };
-  const stamp = bk.timestamp.replace(/[:.]/g, '-').slice(0, 19);
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `sales_backup_${stamp}.json`;
-  a.click(); URL.revokeObjectURL(url);
-}
-
-// ─ 自動バックアップ履歴を描画
-function renderBackupHistory() {
-  const el = document.getElementById('backup-history-list');
-  if(!el) return;
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
-  if(!backups.length) {
-    el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">バックアップ履歴はありません</p>';
-    return;
-  }
-  el.innerHTML = backups.map((bk, i) => {
-    const size = (bk.size / 1024).toFixed(1);
-    const opps = bk.data?.opportunities?.length || 0;
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;
-        border-bottom:1px solid var(--border-light);">
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:500;">${bk.label}</div>
-        <div style="font-size:11px;color:var(--text-muted);">案件 ${opps}件 ／ ${size} KB</div>
-      </div>
-      <button class="btn btn-sm" onclick="exportAutoBackup(${i})" title="ダウンロード">📤</button>
-      <button class="btn btn-sm btn-primary" onclick="restoreAutoBackup(${i})">復元</button>
-    </div>`;
-  }).join('');
-}
-
-
-
-// ============================================================
-// ユーザー選択 & 表示スコープ制御
-// ============================================================
-const USER_SESSION_KEY = 'sales_current_user';
-
-// 現在のログインユーザー（name で管理）
-let currentUser = null;  // { id, name, role, dept }
-// 表示スコープ: 'own'=自分の案件のみ, 'all'=全件
-let viewScope = 'own';
-
-// ─ 初期化（DOMContentLoaded で呼ぶ）
-
-
-// ── ログイン必須画面 ──
-function showLoginRequired() {
-  const existing = document.getElementById('login-required-overlay');
-  if(existing) return; // 既に表示中
-
-  // メインコンテンツを非表示
-  document.querySelector('nav')  && (document.querySelector('nav').style.display  = 'none');
-  document.querySelector('main') && (document.querySelector('main').style.display = 'none');
-  document.getElementById('app') && (document.getElementById('app').style.display = 'none');
-
-  const overlay = document.createElement('div');
-  overlay.id = 'login-required-overlay';
-  overlay.style.cssText = [
-    'position:fixed', 'inset:0', 'background:var(--bg-primary, #f5f5f3)',
-    'display:flex', 'flex-direction:column', 'align-items:center',
-    'justify-content:center', 'z-index:99998',
-    'font-family:system-ui,sans-serif', 'text-align:center', 'padding:32px'
-  ].join(';');
-  overlay.innerHTML = `
-    <div style="max-width:380px;">
-      <div style="font-size:64px;margin-bottom:24px;">☁️</div>
-      <h1 style="font-size:22px;font-weight:700;color:var(--text-primary,#1a1a1a);margin:0 0 12px;">
-        ログインが必要です
-      </h1>
-      <p style="font-size:14px;color:var(--text-secondary,#6b6a66);margin:0 0 32px;line-height:1.6;">
-        このシステムを利用するには<br>Microsoft 365 アカウントでのログインが必要です。
-      </p>
-      <button onclick="document.getElementById('login-required-overlay').remove(); loginOneDrive();"
-        style="padding:12px 32px;background:var(--accent,#2563eb);color:#fff;
-          border:none;border-radius:8px;font-size:15px;font-weight:600;
-          cursor:pointer;width:100%;">
-        Microsoft 365 でログイン
-      </button>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-}
-
-// ── アクセス拒否画面 ──
-function showAccessDenied(email) {
-  // ナビ・メインコンテンツを非表示にしてアクセス拒否画面を表示
-  document.querySelector('nav')  && (document.querySelector('nav').style.display  = 'none');
-  document.querySelector('main') && (document.querySelector('main').style.display = 'none');
-  document.getElementById('app') && (document.getElementById('app').style.display = 'none');
-
-  // 既存のオーバーレイがあれば削除
-  const existing = document.getElementById('access-denied-overlay');
-  if(existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.id = 'access-denied-overlay';
-  overlay.style.cssText = [
-    'position:fixed', 'inset:0', 'background:var(--bg-primary, #f5f5f3)',
-    'display:flex', 'flex-direction:column', 'align-items:center',
-    'justify-content:center', 'z-index:99999',
-    'font-family:system-ui,sans-serif', 'text-align:center', 'padding:32px'
-  ].join(';');
-  overlay.innerHTML = `
-    <div style="max-width:420px;">
-      <div style="font-size:64px;margin-bottom:24px;">🔒</div>
-      <h1 style="font-size:22px;font-weight:700;color:var(--text-primary,#1a1a1a);margin:0 0 12px;">
-        アクセスが許可されていません
-      </h1>
-      <p style="font-size:14px;color:var(--text-secondary,#6b6a66);margin:0 0 8px;">
-        ログインアカウント：
-      </p>
-      <p style="font-size:14px;font-weight:600;color:var(--accent,#2563eb);margin:0 0 24px;word-break:break-all;">
-        ${email}
-      </p>
-      <p style="font-size:14px;color:var(--text-secondary,#6b6a66);margin:0 0 32px;line-height:1.6;">
-        このアカウントはシステムに登録されていません。<br>
-        管理者（atakahashi@4din.com）に連絡してアカウントの登録を依頼してください。
-      </p>
-      <button onclick="logoutOneDrive().then(()=>location.reload())"
-        style="padding:10px 28px;background:var(--accent,#2563eb);color:#fff;
-          border:none;border-radius:8px;font-size:14px;font-weight:600;
-          cursor:pointer;">
-        別のアカウントでログイン
-      </button>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-}
-
-function initUserSession() {
-  // M365ログイン済みの場合はメールアドレスで自動選択
-  if(_currentAccount && _currentAccount.username) {
-    const email = _currentAccount.username.toLowerCase();
-    const found = (db.users||[]).find(u =>
-      u.active !== false && u.email && u.email.toLowerCase() === email
-    );
-    if(found) {
-      currentUser = found;
-      _storage.setItem(USER_SESSION_KEY, JSON.stringify(found));
-      updateUserUI();
-      viewScope = (found.role === 'マネージャー' || found.role === '管理者') ? 'all' : 'own';
-      updateScopeBtn();
-      toast(`👤 ${found.name} としてログインしました`, 'success');
-      return;
-    }
-    // メール未登録 → アクセス不可画面を表示
-    showAccessDenied(email);
-    return;
-  }
-  // M365未ログインの場合は保存済みセッションを使用
-  const saved = _storage.getItem(USER_SESSION_KEY);
-  if(saved) {
-    try {
-      const u = JSON.parse(saved);
-      const found = (db.users||[]).find(x => x.id === u.id);
-      if(found) {
-        currentUser = found;
-        updateUserUI();
-        viewScope = (found.role === 'マネージャー' || found.role === '管理者') ? 'all' : 'own';
-        updateScopeBtn();
-        return;
+  // 前期比グラフ
+  destroyChart('chartYoY');
+  const elYY = document.getElementById('chartYoY');
+  if(elYY) {
+    const prevLabel = dashMode==='fy' ? '前年度' : dashMode==='quarter' ? '前四半期' : '前月';
+    charts.chartYoY = new Chart(elYY, {
+      type:'bar',
+      data:{labels:[prevLabel, '当期'], datasets:[{data:[prevSales, totalSales], backgroundColor:['rgba(136,135,128,0.6)', '#185FA5'], borderRadius:5}]},
+      options:{responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>'¥'+ctx.parsed.y.toLocaleString()+'万'}}},
+        scales:{y:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万', font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}, x:{ticks:{font:{size:11}}, grid:{display:false}}}
       }
-    } catch(e) {}
+    });
   }
-  // 未選択ならセレクターを開く
-  openUserSelector();
-}
 
-// ─ ユーザーセレクターを開く
-function openUserSelector() {
-  const overlay = document.getElementById('user-selector-overlay');
-  const list    = document.getElementById('user-selector-list');
-  if(!overlay || !list) return;
+  // ── 予算 vs 実績チャート ──
+  const budget = db.monthlyBudget || {};
 
-  const users = (db.users||[]).filter(u => u.active !== false);
-  list.innerHTML = users.map(u => {
-    const initials = u.name ? u.name.slice(0,1) : '?';
-    const isSelected = currentUser?.id === u.id;
-    return `<div class="user-list-item ${isSelected?'selected':''}"
-      onclick="selectUser('${u.id}')" id="user-item-${u.id}">
-      <div class="user-avatar">${initials}</div>
-      <div>
-        <div class="user-info-name">${u.name}</div>
-        <div class="user-info-role">${u.role} ／ ${u.dept}</div>
+  // 期間内の予算合計
+  const totalBudget = monthRange.reduce((s,k) => s + (budget[k] || 0), 0);
+  const achvPct = totalBudget > 0 ? Math.round(totalSales / totalBudget * 100) : 0;
+  const achvBadge = document.getElementById('budget-achv-badge');
+  if(achvBadge) {
+    achvBadge.textContent = `達成率 ${achvPct}%`;
+    achvBadge.style.background = achvPct >= 100 ? 'var(--green)' : achvPct >= 80 ? '#185FA5' : '#BA7517';
+    achvBadge.style.color = '#fff';
+    achvBadge.style.padding = '3px 8px';
+    achvBadge.style.borderRadius = '10px';
+  }
+
+  // 棒グラフ（予算 vs 実績 累計）
+  destroyChart('chartBudgetBar');
+  const elBB = document.getElementById('chartBudgetBar');
+  if(elBB && totalBudget > 0) {
+    charts.chartBudgetBar = new Chart(elBB, {
+      type:'bar',
+      data:{
+        labels:['予算', '実績'],
+        datasets:[{
+          data:[totalBudget, totalSales],
+          backgroundColor:['rgba(136,135,128,0.5)', totalSales >= totalBudget ? '#1D9E75' : '#185FA5'],
+          borderRadius:5
+        }]
+      },
+      options:{responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          tooltip:{callbacks:{label:ctx=>'¥'+ctx.parsed.y.toLocaleString()+'万'}}},
+        scales:{
+          y:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}},
+          x:{ticks:{font:{size:12}}, grid:{display:false}}
+        }
+      }
+    });
+  }
+
+  // 折れ線グラフ（月次推移 予算 vs 実績）
+  const trendRange = dashMode === 'month'
+    ? Array.from({length:13}, (_,i) => addMonths(dashMonth, -6+i))
+    : monthRange;
+  const trendLabels = trendRange.map(k=>{const[y,m]=k.split('-');return y.slice(2)+'/'+parseInt(m);});
+  destroyChart('chartBudgetTrend');
+  const elBT = document.getElementById('chartBudgetTrend');
+  if(elBT) {
+    charts.chartBudgetTrend = new Chart(elBT, {
+      type:'line',
+      data:{labels:trendLabels, datasets:[
+        {label:'予算', data:trendRange.map(k=>budget[k]||null), borderColor:'#888780', borderWidth:2, borderDash:[5,3], pointRadius:2, tension:0.3, fill:false},
+        {label:'実績', data:trendRange.map(k=>msr[k]?.salesTotal||null), borderColor:'#185FA5', borderWidth:2, pointRadius:3, tension:0.3, fill:false}
+      ]},
+      options:{responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{position:'top', labels:{font:{size:10}, boxWidth:12}},
+          tooltip:{callbacks:{label:ctx=>ctx.dataset.label+' ¥'+( ctx.parsed.y||0).toLocaleString()+'万'}}},
+        scales:{
+          y:{beginAtZero:true, ticks:{callback:v=>'¥'+v+'万',font:{size:9},maxTicksLimit:5}, grid:{color:'rgba(0,0,0,0.04)'}},
+          x:{ticks:{font:{size:9},maxRotation:45}, grid:{display:false}}
+        }
+      }
+    });
+  }
+
+
+  // ── 今日のフォローアップウィジェット ──
+  (function renderFollowupWidget() {
+    const today = new Date().toISOString().split('T')[0];
+    const el = document.getElementById('dash-followup-section');
+    if(!el) return;
+
+    // 今日・直近3日以内のフォローアップ
+    const urgent = db.opportunities.filter(o =>
+      o.nextAction?.date && o.stage !== '受注' && o.stage !== '失注' &&
+      o.nextAction.date <= today
+    ).sort((a,b) => a.nextAction.date.localeCompare(b.nextAction.date));
+
+    const upcoming = db.opportunities.filter(o => {
+      if(!o.nextAction?.date || o.stage === '受注' || o.stage === '失注') return false;
+      const d = Math.ceil((new Date(o.nextAction.date) - new Date(today)) / 86400000);
+      return d > 0 && d <= 7;
+    }).sort((a,b) => a.nextAction.date.localeCompare(b.nextAction.date));
+
+    if(!urgent.length && !upcoming.length) { el.innerHTML = ''; return; }
+
+    const priorityColor = {urgent:'#E24B4A', high:'#BA7517', normal:'#185FA5'};
+    const priorityLabel = {urgent:'緊急', high:'高', normal:'通常'};
+
+    const makeRow = (o, isOverdue) => {
+      const daysLeft = Math.ceil((new Date(o.nextAction.date) - new Date(today)) / 86400000);
+      const pri = o.nextAction.priority || 'normal';
+      const color = isOverdue ? '#E24B4A' : priorityColor[pri];
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;
+        border-left:3px solid ${color};background:${isOverdue?'rgba(226,75,74,0.05)':'var(--bg-secondary)'};
+        border-radius:0 6px 6px 0;cursor:pointer;"
+        onclick="showOppDetail('${o.id}')">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            ${isOverdue?'⚠ ':''}${o.name}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px;">
+            ${o.nextAction.action||'—'}　／　${o.owner||'—'}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:11px;font-weight:600;color:${color};">
+            ${isOverdue ? Math.abs(daysLeft)+'日超過' : daysLeft===0?'本日':'あと'+daysLeft+'日'}
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);">${o.nextAction.date}</div>
+        </div>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${color}22;color:${color};white-space:nowrap;">
+          ${priorityLabel[pri]||'通常'}
+        </span>
+      </div>`;
+    };
+
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header" style="padding:10px 16px;">
+          <span class="card-title" style="font-size:13px;">📅 フォローアップ一覧</span>
+          <span style="font-size:11px;color:var(--text-muted);">
+            ${urgent.length ? `<span style="color:#E24B4A;font-weight:600;">${urgent.length}件 期限切れ・本日</span>` : ''}
+            ${upcoming.length ? `　${upcoming.length}件 7日以内` : ''}
+          </span>
+        </div>
+        <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px;">
+          ${urgent.map(o=>makeRow(o,true)).join('')}
+          ${upcoming.map(o=>makeRow(o,false)).join('')}
+        </div>
+      </div>`;
+  })();
+
+  // 計上方式ドーナツ
+  const recogCounts = {};
+  opps.forEach(o => { recogCounts[o.recog] = (recogCounts[o.recog] || 0) + 1; });
+  const recogColors = {'進行基準':'#534AB7','一括計上':'#185FA5','月額按分':'#1D9E75','検収基準':'#BA7517','手動計上':'#888780'};
+  const recogLabels = Object.keys(recogCounts);
+  const recogData   = recogLabels.map(k => recogCounts[k]);
+  destroyChart('chartRecog');
+  charts.chartRecog = new Chart(document.getElementById('chartRecog'), {
+    type:'doughnut',
+    data:{labels:recogLabels, datasets:[{data:recogData, backgroundColor:recogLabels.map(k=>recogColors[k]||'#888'), borderWidth:0, hoverOffset:4}]},
+    options:{responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{legend:{display:false}}}
+  });
+  const rtotal = recogData.reduce((a,b) => a+b, 0);
+  document.getElementById('recog-legend').innerHTML = recogLabels.map((k,i) => `
+    <span style="display:flex;align-items:center;gap:7px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${recogColors[k]||'#888'};flex-shrink:0;"></span>
+      <span style="color:var(--text-secondary);">${k} <strong>${Math.round(recogData[i]/rtotal*100)}%</strong></span>
+    </span>`).join('');
+
+  // ファネル（フェーズ変更履歴つき）
+  const stages = ['リード','提案中','見積提出','交渉中','受注'];
+  const stageColors = {'リード':'#888780','提案中':'#378ADD','見積提出':'#BA7517','交渉中':'#534AB7','受注':'#1D9E75'};
+
+  // フェーズ別: 平均滞留日数を計算
+  function calcAvgDays(stage) {
+    const oppsInStage = opps.filter(o => o.stage === stage && o.stageHistory?.length);
+    if(!oppsInStage.length) return null;
+    const now = new Date();
+    const days = oppsInStage.map(o => {
+      const hist = o.stageHistory;
+      const entry = [...hist].reverse().find(h => h.stage === stage);
+      if(!entry) return null;
+      const entryDate = new Date(entry.date);
+      // 次のフェーズ変更日（or 今日）
+      const entryIdx = hist.indexOf(entry);
+      const nextEntry = hist[entryIdx + 1];
+      const exitDate  = nextEntry ? new Date(nextEntry.date) : now;
+      const diff = Math.round((exitDate - entryDate) / 86400000);
+      return diff >= 0 ? diff : null;
+    }).filter(d => d !== null);
+    if(!days.length) return null;
+    return Math.round(days.reduce((a,b)=>a+b,0) / days.length);
+  }
+
+  // フェーズ別: 前フェーズからのCV率
+  function calcCvRate(fromStage, toStage) {
+    const fromCount = opps.filter(o =>
+      o.stageHistory?.some(h=>h.stage===fromStage)
+    ).length;
+    const toCount = opps.filter(o =>
+      o.stageHistory?.some(h=>h.stage===fromStage) &&
+      o.stageHistory?.some(h=>h.stage===toStage)
+    ).length;
+    return fromCount > 0 ? Math.round(toCount/fromCount*100) : null;
+  }
+
+  const stageData = stages.map(s => ({
+    stage: s,
+    count: opps.filter(o=>o.stage===s).length,
+    amt:   opps.filter(o=>o.stage===s).reduce((a,o)=>a+o.amount,0),
+    avgDays: calcAvgDays(s)
+  }));
+  const maxAmt = Math.max(...stageData.map(d=>d.amt)) || 1;
+
+  document.getElementById('funnel-chart').innerHTML = stageData.map((d, i) => {
+    const pct = Math.max(8, Math.round(d.amt/maxAmt*100));
+    const daysLabel = d.avgDays !== null
+      ? `<span style="font-size:10px;color:var(--text-muted);margin-left:6px;">平均${d.avgDays}日</span>`
+      : '';
+    // CV率（前フェーズ→このフェーズ）
+    let cvLabel = '';
+    if(i > 0) {
+      const cv = calcCvRate(stages[i-1], d.stage);
+      if(cv !== null) {
+        cvLabel = `<div style="font-size:10px;color:var(--text-muted);text-align:center;margin:-2px 0 2px;">▼ CV ${cv}%</div>`;
+      }
+    }
+    return `${cvLabel}<div class="funnel-row">
+      <div class="funnel-label">${d.stage}${daysLabel}</div>
+      <div class="funnel-track">
+        <div class="funnel-fill" style="width:${pct}%;background:${stageColors[d.stage]};">${d.count}件</div>
       </div>
-      ${isSelected ? '<span style="margin-left:auto;color:var(--accent);">✓</span>' : ''}
+      <div class="funnel-meta">${fmtM(d.amt)}</div>
     </div>`;
   }).join('');
 
-  overlay.classList.add('open');
-}
-
-// ─ ユーザーを仮選択
-function selectUser(userId) {
-  document.querySelectorAll('.user-list-item').forEach(el => el.classList.remove('selected'));
-  const item = document.getElementById('user-item-' + userId);
-  if(item) {
-    item.classList.add('selected');
-    // チェックマーク追加
-    document.querySelectorAll('.user-list-item span[style*="accent"]').forEach(s=>s.remove());
-    item.insertAdjacentHTML('beforeend', '<span style="margin-left:auto;color:var(--accent);">✓</span>');
-  }
-  // 一時選択
-  currentUser = (db.users||[]).find(u => u.id === userId) || null;
-}
-
-// ─ 選択確定
-function confirmUserSelect() {
-  if(!currentUser) { toast('ユーザーを選択してください', 'error'); return; }
-  _storage.setItem(USER_SESSION_KEY, JSON.stringify(currentUser));
-  document.getElementById('user-selector-overlay').classList.remove('open');
-  updateUserUI();
-  // ロール判定
-  viewScope = (currentUser.role === 'マネージャー' || currentUser.role === '管理者') ? 'all' : 'own';
-  updateScopeBtn();
-  refreshAllViews();
-  toast(`${currentUser.name} としてログインしました`, 'success');
-}
-
-// ─ 表示スコープ切り替え
-function toggleViewScope() {
-  viewScope = viewScope === 'own' ? 'all' : 'own';
-  updateScopeBtn();
-  // 現在のページを再描画（案件ページ以外でも renderOpportunities を含む全ビューを更新）
-  renderOpportunities();
-  refreshAllViews();
-}
-
-function updateScopeBtn() {
-  const btn = document.getElementById('view-scope-btn');
-  if(!btn) return;
-  if(viewScope === 'own') {
-    btn.textContent = '自分の案件';
-    btn.className = 'view-scope-btn own';
-  } else {
-    btn.textContent = '全件表示';
-    btn.className = 'view-scope-btn all';
-  }
-}
-
-// ─ トップバーのユーザー表示更新
-function updateUserUI() {
-  const avatarEl  = document.getElementById('current-user-avatar');
-  const nameEl    = document.getElementById('current-user-name');
-  const sidebarEl = document.getElementById('sidebar-user-name');
-  if(!currentUser) return;
-  if(avatarEl)  avatarEl.textContent  = currentUser.name ? currentUser.name.slice(0,1) : '?';
-  if(nameEl)    nameEl.textContent    = currentUser.name || '未選択';
-  if(sidebarEl) sidebarEl.textContent = currentUser.name || '未選択';
-  // 月次確定ボタン・バックアップタブ: 管理者ロール または 管理部のみ表示
-  const canAdmin = currentUser.role === '管理者' || currentUser.dept === '管理部';
-  const lockBtn = document.getElementById('btn-monthly-lock');
-  if(lockBtn) lockBtn.style.display = canAdmin ? '' : 'none';
-  const backupTab = document.getElementById('tab-master-backup');
-  if(backupTab) {
-    backupTab.style.display = canAdmin ? '' : 'none';
-    // バックアップタブが表示中なのに権限なし → 別タブへ切り替え
-    if(!canAdmin && backupTab.classList.contains('active')) {
-      const firstTab = document.querySelector('#page-master .tab:not(#tab-master-backup)');
-      if(firstTab) firstTab.click();
-    }
-  }
-  // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみ表示
-  const canCashflow = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
-  const cfNav = document.querySelector('.nav-item[data-page="cashflow"]');
-  if(cfNav) cfNav.style.display = canCashflow ? '' : 'none';
-  // キャッシュフロー表示中なのに権限なし → ダッシュボードへ遷移
-  if(!canCashflow) {
-    const activePage = document.querySelector('.page.active');
-    if(activePage && activePage.id === 'page-cashflow') navigate('dashboard');
-  }
-}
-
-// ─ 全画面を現在ユーザー・スコープで再描画
-function refreshAllViews() {
-  const page = document.querySelector('.page.active')?.id?.replace('page-','');
-  if(page === 'dashboard')          renderDashboard();
-  else if(page === 'opportunities') renderOpportunities();
-  else if(page === 'monthly')       renderMonthly();
-  else if(page === 'payment')       renderPayment();
-  else if(page === 'cashflow')      renderCashflow();
-  else if(page === 'reports')       renderReports();
-  else if(page === 'alerts')        renderAlerts();
-  else                              renderDashboard();
-}
-
-// ─ スコープフィルター: opportunity に適用するか判定
-function matchesScope(opp) {
-  if(viewScope === 'all' || !currentUser) return true;
-  const cn = currentUser.name;
-  const oo = opp.owner || '';
-  // 完全一致、または姓のみ一致（フルネーム移行期の互換）
-  return oo === cn || oo === cn.charAt(0) || cn.startsWith(oo) || oo.startsWith(cn);
-}
-
-
-window.addEventListener('beforeunload', () => {
-  // ページ離脱時に自動バックアップ
-  try { createAutoBackup(false); } catch(e) {}
-});
-
-window.addEventListener('DOMContentLoaded', async () => {
-  await window._appReady;
-  // Startup: verify all modals exist
-  ['modal-activity','modal-task'].forEach(id => {
-    if(!document.getElementById(id))
-      console.error('STARTUP: missing element id=' + id);
-    else
-      console.log('STARTUP: found ' + id);
+  // 期間内案件テーブル
+  const periodSales = {};
+  monthRange.forEach(mk => {
+    const md = db.monthly[mk] || {};
+    opps.forEach(o => { periodSales[o.id] = (periodSales[o.id] || 0) + (md[o.id]?.sales || 0); });
   });
-  initDashMonthSel();
-  initReportMonthSel();
-  // initUserSession はOneDrive読込後に自動実行
-  initOneDriveSync();
-  // 月次管理: 基準月ピッカーをcurrentMonthで初期化
-  // 担当者フィルターの初期化
-  buildOwnerList();
-  autoGenerateAlerts();
-  renderDashboard();
-  updateAlertBadge();
-  // グローバル検索窓: 初期ページ（ダッシュボード）では検索対象なし → 非表示
-  const _gbar = document.getElementById('global-search-bar');
-  if(_gbar) _gbar.style.display = 'none';
-
-});
+  const periodOpps = [...opps].sort((a,b) => (periodSales[b.id]||0) - (periodSales[a.id]||0)).slice(0, 8);
+  document.getElementById('dash-opp-tbody').innerHTML = periodOpps.map(o => `
+    <tr>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+        <a href="#" style="color:var(--accent);text-decoration:none;font-weight:500;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a>
+      </td>
+      <td style="font-size:12px;">${o.customer}</td>
+      <td>${stageBadge(o.stage)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <div class="progress-bar"><div class="progress-fill" style="width:${o.prob}%;background:${o.prob>=70?'var(--green)':o.prob>=40?'var(--amber)':'var(--red)'};"></div></div>
+          <span style="font-size:12px;">${o.prob}%</span>
+        </div>
+      </td>
+      <td class="fw-500">${fmt(o.amount)}</td>
+      <td>${recogBadge(o.recog)}</td>
+      <td class="text-right ${periodSales[o.id]>0?'text-green fw-500':''}">${fmt(periodSales[o.id]||0)}</td>
+      <td style="font-size:12px;color:var(--text-secondary);">${o.owner || '—'}</td>
+    </tr>`).join('');
+  renderContractDelay();
+}
 
 // ============================================================
-// 活動記録・タスク管理
+// RENDER: LEADS
 // ============================================================
-function openActivityModal(oppId) {
-  document.getElementById('f-act-id').value = '';
-  document.getElementById('f-act-date').value = new Date().toISOString().slice(0,16);
-  document.getElementById('f-act-type').value = '商談';
-  document.getElementById('f-act-opp').value = '';
-  document.getElementById('f-act-opp-id').value = oppId || '';
-  document.getElementById('f-act-content').value = '';
-  document.getElementById('f-act-next').value = '';
-  // 担当者セレクト
-  const ownerSel = document.getElementById('f-act-owner');
-  if(ownerSel) {
-    ownerSel.innerHTML = db.users.filter(u=>u.active)
-      .map(u=>'<option value="'+u.name+'"'+(u.name===(currentUser?.name)?'selected':'')+'>'+u.name+'</option>').join('');
-  }
-  openModal('activity');
-}
-
-function saveActivity() {
-  const content = document.getElementById('f-act-content').value.trim();
-  if(!content) { toast('内容を入力してください', 'error'); return; }
-  const id      = document.getElementById('f-act-id').value || uid('ACT');
-  const date    = document.getElementById('f-act-date').value;
-  const type    = document.getElementById('f-act-type').value;
-  const oppId   = document.getElementById('f-act-opp-id').value;
-  const owner   = document.getElementById('f-act-owner').value;
-  const next    = document.getElementById('f-act-next').value.trim();
-  const entry   = { id, date, type, oppId, owner, content, next, createdAt: new Date().toISOString() };
-  if(!Array.isArray(db.activities)) db.activities = [];
-  const idx = db.activities.findIndex(a => a.id === id);
-  if(idx >= 0) db.activities[idx] = entry; else db.activities.push(entry);
-  save();
-  closeModal('activity');
-  toast('活動記録を保存しました', 'success');
-}
-
-function openTaskModal(oppId) {
-  document.getElementById('f-task-id').value = '';
-  document.getElementById('f-task-title').value = '';
-  document.getElementById('f-task-due').value = '';
-  document.getElementById('f-task-priority').value = 'normal';
-  document.getElementById('f-task-opp-id').value = oppId || '';
-  document.getElementById('f-task-memo').value = '';
-  // 担当者セレクト
-  const ownerSel = document.getElementById('f-task-owner');
-  if(ownerSel) {
-    ownerSel.innerHTML = db.users.filter(u=>u.active)
-      .map(u=>'<option value="'+u.name+'"'+(u.name===(currentUser?.name)?'selected':'')+'>'+u.name+'</option>').join('');
-  }
-  openModal('task');
-}
-
-function saveTask() {
-  const title = document.getElementById('f-task-title').value.trim();
-  if(!title) { toast('タイトルを入力してください', 'error'); return; }
-  const id       = document.getElementById('f-task-id').value || uid('TASK');
-  const due      = document.getElementById('f-task-due').value;
-  const priority = document.getElementById('f-task-priority').value;
-  const oppId    = document.getElementById('f-task-opp-id').value;
-  const owner    = document.getElementById('f-task-owner').value;
-  const memo     = document.getElementById('f-task-memo').value.trim();
-  const entry    = { id, title, due, priority, oppId, owner, memo, done: false, createdAt: new Date().toISOString() };
-  if(!Array.isArray(db.tasks)) db.tasks = [];
-  const idx = db.tasks.findIndex(t => t.id === id);
-  if(idx >= 0) db.tasks[idx] = entry; else db.tasks.push(entry);
-  save();
-  closeModal('task');
-  toast('タスクを保存しました', 'success');
-}
-
-
