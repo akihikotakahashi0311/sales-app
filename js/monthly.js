@@ -620,7 +620,19 @@ function resetLeadModal() {
     if(el) el.value = el.tagName === 'SELECT' ? el.options[0]?.value || '' : '';
   });
 }
-function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
+function closeModal(id) {
+  const modal = document.getElementById('modal-' + id);
+  if(!modal) return;
+  modal.classList.remove('open');
+  // 必須フィールドのエラースタイルをリセット
+  modal.querySelectorAll('.form-control').forEach(el => {
+    el.style.borderColor = '';
+    el.style.boxShadow   = '';
+  });
+  modal.querySelectorAll('[id$="-error"]').forEach(el => {
+    el.textContent = '';
+  });
+}
 
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if(e.target === el) el.classList.remove('open'); });

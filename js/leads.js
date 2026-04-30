@@ -73,9 +73,9 @@ function generateQuotePdf(oppId) {
   // 見積モーダルの入力値をリセット・初期化
   document.getElementById('q-customer').value  = o.customer || '';
   document.getElementById('q-subject').value   = o.name    || '';
-  document.getElementById('q-owner').value     = o.owner || currentUser?.name || '';
-  document.getElementById('q-sales-rep').value   = o.owner || currentUser?.name || '';
-  const initRepUser = db.users.find(u => u.name === (o.owner || currentUser?.name || ''));
+  document.getElementById('q-owner').value     = o.owner   || (currentUser?.name || '');
+  document.getElementById('q-sales-rep').value   = currentUser?.name || o.owner || '';
+  const initRepUser = db.users.find(u => u.name === (currentUser?.name || o.owner || ''));
   document.getElementById('q-sales-email').value = initRepUser?.email || COMPANY_INFO.email;
   document.getElementById('q-sales-tel').value   = COMPANY_INFO.tel;
   document.getElementById('q-date').value      = new Date().toISOString().split('T')[0];
@@ -648,7 +648,7 @@ function generateInvoice(oppId, ym) {
   const ci       = COMPANY_INFO;
   const customer = o.customer || '';
   const subject  = o.name || '';
-  const owner    = o.owner || currentUser?.name || '';
+  const owner    = currentUser?.name || o.owner || '';
   // 担当者のメールアドレスを取得
   const ownerUser  = db.users.find(u => u.name === owner);
   const ownerEmail = ownerUser?.email || COMPANY_INFO.email;
@@ -1071,7 +1071,7 @@ function generateDelivery(oppId, ym) {
   const ci       = COMPANY_INFO;
   const customer = o.customer || '';
   const subject  = o.name || '';
-  const owner    = o.owner || currentUser?.name || '';
+  const owner    = currentUser?.name || o.owner || '';
   const ownerUser  = db.users.find(u => u.name === owner);
   const ownerEmail = ownerUser?.email || ci.email;
   const ownerTel   = ownerUser?.tel || ci.tel;
@@ -2307,17 +2307,17 @@ function saveOpportunity() {
   const recogVal = document.getElementById('f-opp-recog').value;
   const endVal   = document.getElementById('f-opp-end').value;
 
-  // 必須項目チェック
-  const errors = [];
-  if(!name)     errors.push('・案件名');
-  if(!customer) errors.push('・顧客');
-  if(!amount)   errors.push('・契約金額');
-  if(!startVal) errors.push('・契約開始（予定日）');
-  if(recogVal === '月額按分' && !endVal) errors.push('・契約終了（予定日）（月額按分の場合は必須）');
-  if(errors.length > 0) {
-    toast('以下の必須項目を入力してください\n' + errors.join('\n'), 'error');
-    return;
+  // 必須項目チェック（共通バリデーション）
+  const baseFields = [
+    { id: 'f-opp-name',     label: '案件名' },
+    { id: 'f-opp-customer', label: '顧客' },
+    { id: 'f-opp-amount',   label: '契約総額', type: 'number_gte0' },
+    { id: 'f-opp-start',    label: '契約開始（予定日）' },
+  ];
+  if(recogVal === '月額按分') {
+    baseFields.push({ id: 'f-opp-end', label: '契約終了（予定日）（月額按分では必須）' });
   }
+  if(!validateRequiredFields(baseFields)) return;
   if(amount < 0) { toast('契約総額を正しく入力してください', 'error'); return; }
 
   const editId  = document.getElementById('opp-edit-id').value;
@@ -2613,7 +2613,7 @@ function deleteLead(id) {
 // ============================================================
 function saveCustomer() {
   const name = document.getElementById('f-cust-name').value.trim();
-  if(!name) return;
+  if(!validateRequiredFields([{ id: 'f-cust-name', label: '顧客名' }])) return;
   db.customers.push({id:uid('C'), name, industry:document.getElementById('f-cust-industry').value, segment:document.getElementById('f-cust-segment').value, owner:document.getElementById('f-cust-owner').value});
   save(); closeModal('customer'); renderMaster(); toast('顧客を登録しました', 'success');
 }
@@ -2668,8 +2668,8 @@ function saveUser() {
 }
 
 function saveOrg() {
+  if(!validateRequiredFields([{ id: 'f-org-name', label: '部門名' }])) return;
   const name    = document.getElementById('f-org-name').value.trim();
-  if(!name) return;
   const editId  = document.getElementById('f-org-id')?.value || '';
   const manager = document.getElementById('f-org-manager').value;
   const budget  = parseFloat(document.getElementById('f-org-budget').value) || 0;
