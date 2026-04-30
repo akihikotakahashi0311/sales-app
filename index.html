@@ -2102,11 +2102,11 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-row">
         <div class="form-group" style="flex:2;">
           <label class="form-label required">案件名</label>
-          <input class="form-control" id="f-opp-name" placeholder="例：ERPシステム導入支援">
+          <input class="form-control" id="f-opp-name" placeholder="例：ERPシステム導入支援" oninput="clearFieldError('f-opp-name')"><div id="f-opp-name-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
         </div>
         <div class="form-group">
           <label class="form-label required">顧客</label>
-          <input class="form-control" id="f-opp-customer" list="customer-list" placeholder="顧客名">
+          <input class="form-control" id="f-opp-customer" list="customer-list" placeholder="顧客名" oninput="clearFieldError('f-opp-customer')"><div id="f-opp-customer-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
           <datalist id="customer-list"></datalist>
         </div>
       </div>
@@ -2145,17 +2145,17 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div class="form-group">
           <label class="form-label required">契約総額（万円）</label>
-          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0">
+          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0" oninput="clearFieldError('f-opp-amount')"><div id="f-opp-amount-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">契約開始（予定日）</label>
-          <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onOppStartChange()">
+          <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onOppStartChange();clearFieldError('f-opp-start')"><div id="f-opp-start-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
         </div>
         <div class="form-group">
           <label class="form-label">契約終了（予定日）</label>
-          <input class="form-control" id="f-opp-end" type="date" style="height:34px;font-size:13px;">
+          <input class="form-control" id="f-opp-end" type="date" style="height:34px;font-size:13px;" onchange="clearFieldError('f-opp-end')"><div id="f-opp-end-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
         </div>
       </div>
 
@@ -2388,7 +2388,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-row">
         <div class="form-group">
           <label class="form-label required">顧客名</label>
-          <input class="form-control" id="f-cust-name">
+          <input class="form-control" id="f-cust-name" oninput="clearFieldError('f-cust-name')"><div id="f-cust-name-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
         </div>
         <div class="form-group">
           <label class="form-label">業種</label>
@@ -2466,7 +2466,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
     <div class="modal-body">
       <input type="hidden" id="f-org-id">
       <div class="form-row">
-        <div class="form-group"><label class="form-label required">部門名</label><input class="form-control" id="f-org-name"></div>
+        <div class="form-group"><label class="form-label required">部門名</label><input class="form-control" id="f-org-name" oninput="clearFieldError('f-org-name')"><div id="f-org-name-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
         <div class="form-group"><label class="form-label">マネージャー</label><select class="form-control" id="f-org-manager"></select></div>
       </div>
       <div class="form-group"><label class="form-label">売上予算（万円）</label><input class="form-control" id="f-org-budget" type="text" inputmode="decimal"
@@ -2945,7 +2945,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <input type="hidden" id="f-act-id">
       <div class="form-row">
         <div class="form-group"><label class="form-label required">日時</label>
-          <input class="form-control" id="f-act-date" type="datetime-local" style="height:34px;font-size:13px;"></div>
+          <input class="form-control" id="f-act-date" type="datetime-local" style="height:34px;font-size:13px;" onchange="clearFieldError('f-act-date')"><div id="f-act-date-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
         <div class="form-group"><label class="form-label required">種別</label>
           <select class="form-control" id="f-act-type">
             <option>商談</option><option>電話</option><option>メール</option>
@@ -2962,7 +2962,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <input class="form-control" id="f-act-next" type="text" placeholder="例：提案書送付"></div>
       </div>
       <div class="form-group"><label class="form-label required">内容</label>
-        <textarea class="form-control" id="f-act-content" rows="4"></textarea></div>
+        <textarea class="form-control" id="f-act-content" rows="4" oninput="clearFieldError('f-act-content')"></textarea><div id="f-act-content-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('activity')">キャンセル</button>
@@ -2979,10 +2979,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
     <div class="modal-body">
       <input type="hidden" id="f-task-id">
       <div class="form-group"><label class="form-label required">タスク内容</label>
-        <input class="form-control" id="f-task-title" type="text"></div>
+        <input class="form-control" id="f-task-title" type="text" oninput="clearFieldError('f-task-title')"><div id="f-task-title-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
       <div class="form-row">
         <div class="form-group"><label class="form-label required">期限</label>
-          <input class="form-control" id="f-task-due" type="date" style="height:34px;font-size:13px;"></div>
+          <input class="form-control" id="f-task-due" type="date" style="height:34px;font-size:13px;" onchange="clearFieldError('f-task-due')"><div id="f-task-due-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
         <div class="form-group"><label class="form-label">優先度</label>
           <select class="form-control" id="f-task-priority">
             <option value="normal">通常</option><option value="high">高</option><option value="urgent">緊急</option>
