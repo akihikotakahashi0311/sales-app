@@ -1680,7 +1680,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            入金予測：案件の<strong style="color:var(--text-secondary);">売上回収時期</strong>（請求タイプ・入金サイト）から算出　／　残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜3月実績、4月〜は直近6ヶ月平均予測）
+            入金予測：案件の<strong style="color:var(--text-secondary);">売上回収時期</strong>（請求タイプ・入金サイト）から算出　／　残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金・残高：<strong style="color:var(--text-secondary);">残高試算表</strong>実績ベース固定（案件フィルタ・検索では変化しません）
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -1692,7 +1692,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <div class="card-header">
             <span class="card-title">月次キャッシュフロー内訳（I〜VII）</span>
             <div style="display:flex;gap:8px;align-items:center;">
-              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflow()">
+              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で絞込（入金予測に反映）" style="width:210px;height:32px;font-size:12px;" oninput="renderCashflow()" title="入力すると入金予測が該当案件のみに絞り込まれます（出金・残高は試算表実績のため変わりません）">
             </div>
           </div>
           <div style="overflow-x:auto;">
