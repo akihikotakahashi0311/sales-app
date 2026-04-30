@@ -73,9 +73,9 @@ function generateQuotePdf(oppId) {
   // 見積モーダルの入力値をリセット・初期化
   document.getElementById('q-customer').value  = o.customer || '';
   document.getElementById('q-subject').value   = o.name    || '';
-  document.getElementById('q-owner').value     = o.owner   || (currentUser?.name || '');
-  document.getElementById('q-sales-rep').value   = currentUser?.name || o.owner || '';
-  const initRepUser = db.users.find(u => u.name === (currentUser?.name || o.owner || ''));
+  document.getElementById('q-owner').value     = o.owner || currentUser?.name || '';
+  document.getElementById('q-sales-rep').value   = o.owner || currentUser?.name || '';
+  const initRepUser = db.users.find(u => u.name === (o.owner || currentUser?.name || ''));
   document.getElementById('q-sales-email').value = initRepUser?.email || COMPANY_INFO.email;
   document.getElementById('q-sales-tel').value   = COMPANY_INFO.tel;
   document.getElementById('q-date').value      = new Date().toISOString().split('T')[0];
@@ -648,7 +648,7 @@ function generateInvoice(oppId, ym) {
   const ci       = COMPANY_INFO;
   const customer = o.customer || '';
   const subject  = o.name || '';
-  const owner    = currentUser?.name || o.owner || '';
+  const owner    = o.owner || currentUser?.name || '';
   // 担当者のメールアドレスを取得
   const ownerUser  = db.users.find(u => u.name === owner);
   const ownerEmail = ownerUser?.email || COMPANY_INFO.email;
@@ -1071,7 +1071,7 @@ function generateDelivery(oppId, ym) {
   const ci       = COMPANY_INFO;
   const customer = o.customer || '';
   const subject  = o.name || '';
-  const owner    = currentUser?.name || o.owner || '';
+  const owner    = o.owner || currentUser?.name || '';
   const ownerUser  = db.users.find(u => u.name === owner);
   const ownerEmail = ownerUser?.email || ci.email;
   const ownerTel   = ownerUser?.tel || ci.tel;
