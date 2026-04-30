@@ -2307,17 +2307,38 @@ function saveOpportunity() {
   const recogVal = document.getElementById('f-opp-recog').value;
   const endVal   = document.getElementById('f-opp-end').value;
 
-  // 必須項目チェック（共通バリデーション）
-  const baseFields = [
-    { id: 'f-opp-name',     label: '案件名' },
-    { id: 'f-opp-customer', label: '顧客' },
-    { id: 'f-opp-amount',   label: '契約総額', type: 'number_gte0' },
-    { id: 'f-opp-start',    label: '契約開始（予定日）' },
-  ];
-  if(recogVal === '月額按分') {
-    baseFields.push({ id: 'f-opp-end', label: '契約終了（予定日）（月額按分では必須）' });
+  // 必須項目チェック
+  const errors = [];
+  if(!name)     errors.push('・案件名');
+  if(!customer) errors.push('・顧客');
+  if(!amount)   errors.push('・契約金額');
+  if(!startVal) errors.push('・契約開始（予定日）');
+  if(recogVal === '月額按分' && !endVal) errors.push('・契約終了（予定日）（月額按分の場合は必須）');
+
+  // 月次売上スケジュール（月額按分・進行基準は必須）
+  const _recogForCheck = document.getElementById('f-opp-recog')?.value || '';
+  if((_recogForCheck === '月額按分' || _recogForCheck === '進行基準')) {
+    const _schedTotal = Object.values(scheduleData).reduce((s, d) => s + (d.sales || 0), 0);
+    if(_schedTotal === 0) errors.push('・月次売上スケジュール（「自動入力」ボタンで入力してください）');
   }
-  if(!validateRequiredFields(baseFields)) return;
+
+  // 請求タイプ
+  const _billingType = document.getElementById('f-opp-billing-type')?.value || '';
+  if(!_billingType) errors.push('・請求タイプ');
+
+  // 請求予定日（一括・マイルストーンは請求予定日必須、月次請求は次回請求予定日 or 請求予定日のどちらか）
+  const _billingDate     = document.getElementById('f-opp-billing-date')?.value || '';
+  const _nextBillingDate = document.getElementById('f-opp-next-billing-date')?.value || '';
+  if(_billingType === 'monthly') {
+    if(!_billingDate && !_nextBillingDate) errors.push('・請求予定日（月次請求の場合は請求予定日を入力してください）');
+  } else if(_billingType === 'lump' || _billingType === 'milestone') {
+    if(!_billingDate) errors.push('・請求予定日');
+  }
+
+  if(errors.length > 0) {
+    toast('以下の必須項目を入力してください\n' + errors.join('\n'), 'error');
+    return;
+  }
   if(amount < 0) { toast('契約総額を正しく入力してください', 'error'); return; }
 
   const editId  = document.getElementById('opp-edit-id').value;
@@ -2371,6 +2392,20 @@ function saveOpportunity() {
   };
 
   // 受注クラッカー判定（編集前のステージを記録）
+  // 月額按分・進行基準: スケジュール合計と契約総額の整合チェック（DB保存前に実施）
+  if(recogVal === '進行基準') {
+    const schedTotal = Object.values(scheduleData).reduce((s, d) => s + (d.sales || 0), 0);
+    if(schedTotal > 0) {
+      const diff = Math.abs(schedTotal - amount);
+      if(diff > 0.01) {
+        const dir = schedTotal < amount ? '少ない' : '多い';
+        const gap = Math.abs(amount - schedTotal).toLocaleString();
+        toast(`進捗売上の合計（¥${schedTotal.toLocaleString()}万）が契約総額（¥${amount.toLocaleString()}万）より¥${gap}万 ${dir}です。\nスケジュールを修正してから登録してください。`, 'error');
+        return;
+      }
+    }
+  }
+
   const _prevOpp = editId ? db.opportunities.find(o => o.id === editId) : null;
   const _wasWon  = _prevOpp?.stage === '受注';
   if(editId) {
@@ -2378,21 +2413,6 @@ function saveOpportunity() {
     if(idx >= 0) db.opportunities[idx] = opp;
   } else {
     db.opportunities.push(opp);
-  }
-  // 進行基準: スケジュールデータが必須・合計と契約総額が一致しなければ登録不可
-  if(opp.recog === '進行基準') {
-    const schedTotal = Object.values(scheduleData).reduce((s, d) => s + (d.sales || 0), 0);
-    if(schedTotal === 0) {
-      toast('進行基準の場合、月次売上スケジュールの入力は必須です。\n「自動入力」ボタンで入力してください。', 'error');
-      return;
-    }
-    const diff = Math.abs(schedTotal - amount);
-    if(diff > 0.01) {
-      const dir = schedTotal < amount ? '少ない' : '多い';
-      const gap = Math.abs(amount - schedTotal).toLocaleString();
-      toast(`進捗売上の合計（¥${schedTotal.toLocaleString()}万）が契約総額（¥${amount.toLocaleString()}万）より¥${gap}万 ${dir}です。\nスケジュールを修正してから登録してください。`, 'error');
-      return;
-    }
   }
   // 月額按分・進行基準の場合、スケジュールを月次DBに書き込む
   writeScheduleToMonthly(opp.id, opp.start, opp.recog);
@@ -2613,7 +2633,7 @@ function deleteLead(id) {
 // ============================================================
 function saveCustomer() {
   const name = document.getElementById('f-cust-name').value.trim();
-  if(!validateRequiredFields([{ id: 'f-cust-name', label: '顧客名' }])) return;
+  if(!name) return;
   db.customers.push({id:uid('C'), name, industry:document.getElementById('f-cust-industry').value, segment:document.getElementById('f-cust-segment').value, owner:document.getElementById('f-cust-owner').value});
   save(); closeModal('customer'); renderMaster(); toast('顧客を登録しました', 'success');
 }
@@ -2668,8 +2688,8 @@ function saveUser() {
 }
 
 function saveOrg() {
-  if(!validateRequiredFields([{ id: 'f-org-name', label: '部門名' }])) return;
   const name    = document.getElementById('f-org-name').value.trim();
+  if(!name) return;
   const editId  = document.getElementById('f-org-id')?.value || '';
   const manager = document.getElementById('f-org-manager').value;
   const budget  = parseFloat(document.getElementById('f-org-budget').value) || 0;
