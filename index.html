@@ -1637,7 +1637,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         <!-- コントロール行 -->
         <div class="card" style="margin-bottom:16px;">
           <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-            <span class="card-title">キャッシュフロー予測</span>
+            <span class="card-title">月次キャッシュフロー計算書</span>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
                 予測期間
@@ -1661,7 +1661,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            入金予測ルール：請求予定日の<strong style="color:var(--text-secondary);">翌月最終営業日</strong>に請求予定額が入金されるものとして算出
+            残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜3月実績、4月〜は直近6ヶ月平均予測・減価償却費除外）　／　投資・財務CF：支払利息＋BS差額
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -1671,7 +1671,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         <!-- 月別内訳テーブル -->
         <div class="card">
           <div class="card-header">
-            <span class="card-title">月別キャッシュフロー内訳</span>
+            <span class="card-title">月次キャッシュフロー内訳（I〜VII）</span>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflow()">
             </div>
@@ -2458,6 +2458,19 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('org')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveOrg()">登録</button>
+    </div>
+  </div>
+</div>
+
+<!-- CF入金内訳モーダル -->
+<div class="modal-overlay" id="modal-cf-breakdown">
+  <div class="modal" style="max-width:820px;max-height:92vh;display:flex;flex-direction:column;">
+    <div class="modal-header">
+      <span class="modal-title" id="cf-breakdown-title">入金内訳</span>
+      <button class="modal-close" onclick="closeModal('cf-breakdown')">×</button>
+    </div>
+    <div class="modal-body" style="overflow-y:auto;max-height:calc(92vh - 120px);padding:12px 20px;">
+      <div id="cf-breakdown-content"></div>
     </div>
   </div>
 </div>
@@ -3642,14 +3655,6 @@ function buildCompanySealImg(size = 70) {
        + '-webkit-print-color-adjust:exact;print-color-adjust:exact;">';
 }
 
-// 代表取締役印（丸印）画像 — 4DIN代表印をBase64 PNGとして埋め込み（透過処理済み）
-const DAIHYO_SEAL_PNG = 'data:image/png;base64,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';
-function buildDaihyoSealImg(size = 70) {
-  return '<img src="' + DAIHYO_SEAL_PNG + '" alt="代表取締役印" '
-       + 'style="width:' + size + 'px;height:auto;display:block;'
-       + '-webkit-print-color-adjust:exact;print-color-adjust:exact;">';
-}
-
 // 見積書生成モーダルを開く
 function generateQuotePdf(oppId) {
   const o = db.opportunities.find(x => x.id === oppId);
@@ -3935,7 +3940,7 @@ function saveQuoteToOpp() {
   </div>
   <div class="meta-right" style="position:relative;">
     <div class="company-name">${ci.name}</div>
-    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div><div style="margin-top:4px;">'+buildDaihyoSealImg(60)+'</div>' : ''}
+    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div>' : ''}
     ${ci.zip} ${ci.addr1}<br>
     ${ci.addr2}<br>
     TEL: ${salesTel || ci.tel}<br>
@@ -4465,7 +4470,7 @@ function _buildInvoiceHtml() {
   <div class="top-right" style="position:relative;">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="4DIN" style="height:36px;width:auto;margin-bottom:3px;display:block;">' : ''}
     <div class="cname">${ci.name}</div>
-    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div><div style="margin-top:4px;">'+buildDaihyoSealImg(60)+'</div>' : ''}
+    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div>' : ''}
     登録番号　${ci.regNo}<br>
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
@@ -4884,7 +4889,7 @@ function _buildDeliveryHtml() {
       ${ci.name}
       ${sealType === 'company' ? '<span style="position:absolute;right:-2px;top:-14px;line-height:0;">'+buildCompanySealImg(50)+'</span>' : ''}
     </div>
-    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div><div style="margin-top:4px;">'+buildDaihyoSealImg(60)+'</div>' : ''}
+    ${sealType === 'daihyo' ? '<div style="font-size:9pt;color:#333;">代表取締役　高橋精彦</div>' : ''}
     登録番号：${ci.regNo}<br>
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
@@ -9012,6 +9017,120 @@ function markAsPaid(oppId, ym) {
 // ============================================================
 let cfChart = null;
 
+// ── 試算表（残高試算表年間推移 確定版 0427）からのコストデータ ──
+// 株式会社４DIN 2025/10〜2026/03 確定実績 + 4月以降予測（直近6ヶ月平均ベース）
+// ※ 減価償却費は非資金項目のため営業CF出金から除外
+const trialBalanceCosts = (function() {
+  // ── 損益計算書 確定データ（円） ──
+  const actual = {
+    '2025-10': {
+      cogs: { salary: 6880169, welfare: 1177328, telecom: 3897253, depreciation: 233193, outsource: 743872, license: 1224293, purchase: 1854100 },
+      sga:  { salary: 4724170, welfare: 610716, benefits: 168887, recruit: 87823, advertising: 467177, entertainment: 885585, meeting: 176537, travel: 1725263, telecom: 172487, supplies: 41369, utilities: 3784, dues: 133333, fees: 1667870, rent: 190000, lease: 8700, insurance: 57172, tax: 26960, professional: 937300, outsource: 5197263, donation: 0, rnd: 59092, depreciation: 111250, books: 0 },
+      interest: 74235, incomeInterest: 0, miscIncome: 13063
+    },
+    '2025-11': {
+      cogs: { salary: 7682693, welfare: 1326637, telecom: 3487906, depreciation: 233193, outsource: 763872, license: 1224293, purchase: 0 },
+      sga:  { salary: 4733818, welfare: 610716, benefits: 121126, recruit: 40914, advertising: 466300, entertainment: 1046183, meeting: 25416, travel: 1318875, telecom: 191267, supplies: 214514, utilities: 5420, dues: 126333, fees: 138997, rent: 190000, lease: 8700, insurance: 57172, tax: 2600, professional: 937300, outsource: 5070062, donation: 0, rnd: 0, depreciation: 111250, books: 0 },
+      interest: 41096, incomeInterest: 0, miscIncome: 12618
+    },
+    '2025-12': {
+      cogs: { salary: 8542157, welfare: 1389024, telecom: 3287903, depreciation: 233193, outsource: 261874, license: 1224293, purchase: 0 },
+      sga:  { salary: 4728500, welfare: 610769, benefits: 25000, recruit: 46366, advertising: 1340910, entertainment: 1058260, meeting: 32597, travel: 1548283, telecom: 170615, supplies: 676045, utilities: 5830, dues: 340333, fees: 142560, rent: 190000, lease: 8700, insurance: 111142, tax: 33000, professional: 937300, outsource: 6330065, donation: 45000, rnd: 0, depreciation: 127537, books: 0 },
+      interest: 78712, incomeInterest: 0, miscIncome: 12547
+    },
+    '2026-01': {
+      cogs: { salary: 8988245, welfare: 1446261, telecom: 3426596, depreciation: 233193, outsource: 709500, license: 1224293, purchase: 0 },
+      sga:  { salary: 5395167, welfare: 719684, benefits: 41453, recruit: 46638, advertising: 704264, entertainment: 895133, meeting: 26667, travel: 1373612, telecom: 197487, supplies: 116546, utilities: 5898, dues: 94333, fees: 145300, rent: 190000, lease: 8700, insurance: 57172, tax: 520, professional: 1032300, outsource: 5221697, donation: 0, rnd: 0, depreciation: 253871, books: 0 },
+      interest: 71463, incomeInterest: 0, miscIncome: 12632
+    },
+    '2026-02': {
+      cogs: { salary: 9318020, welfare: 1450219, telecom: 3330264, depreciation: 266276, outsource: 692550, license: 2246426, purchase: 0 },
+      sga:  { salary: 5395167, welfare: 719684, benefits: 64982, recruit: 0, advertising: 1307508, entertainment: 1294875, meeting: 12002, travel: 1677705, telecom: 218139, supplies: 52314, utilities: 7160, dues: 133333, fees: 224653, rent: 190000, lease: 8700, insurance: 57172, tax: 131600, professional: 1452300, outsource: 5797790, donation: 0, rnd: 0, depreciation: 368833, books: 29260 },
+      interest: 127626, incomeInterest: 158280, miscIncome: 63478
+    },
+    '2026-03': {
+      cogs: { salary: 9344266, welfare: 1460863, telecom: 2942073, depreciation: 266276, outsource: 0, license: 2217840, purchase: 0 },
+      sga:  { salary: 5395167, welfare: 718842, benefits: 64703, recruit: 4546, advertising: 31620, entertainment: 852351, meeting: 19092, travel: 1098444, telecom: 212648, supplies: 255040, utilities: 5864, dues: 86337, fees: 188342, rent: 190000, lease: 8700, insurance: 57172, tax: 59620, professional: 1205300, outsource: 11975563, donation: 0, rnd: 0, depreciation: 199618, books: 0 },
+      interest: 184387, incomeInterest: 0, miscIncome: 24719
+    }
+  };
+
+  // ── 貸借対照表 現金預金残高（円）──
+  const cashBalances = {
+    '2025-10': 172141964,
+    '2025-11': 151403071,
+    '2025-12': 122905510,
+    '2026-01': 90260888,
+    '2026-02': 64932637,
+    '2026-03': 34052715,
+  };
+
+  // ── 売上高 確定データ（円）──
+  const salesActual = {
+    '2025-10': 11610449,
+    '2025-11': 11704449,
+    '2025-12': 17006654,
+    '2026-01': 14339450,
+    '2026-02': 17774450,
+    '2026-03': 24431440,
+  };
+
+  function sumObj(o) { return Object.values(o).reduce((a,b)=>a+b,0); }
+
+  // 直近6ヶ月平均をベースに4月以降を予測
+  const baseMonths = Object.keys(actual);
+  const avgCogs = {}, avgSga = {};
+  for(const k of Object.keys(actual['2025-10'].cogs)) {
+    avgCogs[k] = Math.round(baseMonths.reduce((s,ym) => s + (actual[ym].cogs[k]||0), 0) / baseMonths.length);
+  }
+  for(const k of Object.keys(actual['2025-10'].sga)) {
+    avgSga[k] = Math.round(baseMonths.reduce((s,ym) => s + (actual[ym].sga[k]||0), 0) / baseMonths.length);
+  }
+  const avgInterest = Math.round(baseMonths.reduce((s,ym) => s + actual[ym].interest, 0) / baseMonths.length);
+
+  return {
+    actual, cashBalances, salesActual,
+    // 万円単位で返却（試算表は円単位）
+    getMonthlyCost(ym) {
+      const m = actual[ym];
+      const src = m ? 'actual' : 'forecast';
+      const cogs = m ? m.cogs : avgCogs;
+      const sga  = m ? m.sga  : avgSga;
+      const interest = m ? m.interest : avgInterest;
+
+      // 減価償却費は非資金項目なので営業CF出金から除外
+      const cogsDepreciation = cogs.depreciation || 0;
+      const sgaDepreciation  = sga.depreciation || 0;
+      const cogsCash = (sumObj(cogs) - cogsDepreciation) / 10000;
+      const sgaCash  = (sumObj(sga) - sgaDepreciation) / 10000;
+
+      // 営業CF出金の内訳カテゴリ
+      const personnelCost = ((cogs.salary||0) + (cogs.welfare||0) + (sga.salary||0) + (sga.welfare||0) + (sga.benefits||0)) / 10000;
+      const outsourceCost = ((cogs.outsource||0) + (sga.outsource||0) + (sga.professional||0)) / 10000;
+      const infraCost     = ((cogs.telecom||0) + (cogs.license||0) + (sga.telecom||0) + (sga.rent||0) + (sga.lease||0) + (sga.utilities||0) + (sga.insurance||0)) / 10000;
+      const bizExpCost    = ((cogs.purchase||0) + (sga.travel||0) + (sga.entertainment||0) + (sga.meeting||0) + (sga.advertising||0) + (sga.recruit||0) + (sga.supplies||0) + (sga.dues||0) + (sga.fees||0) + (sga.tax||0) + (sga.donation||0) + (sga.rnd||0) + (sga.books||0)) / 10000;
+      const interestMan   = interest / 10000;
+
+      return {
+        cogsCash, sgaCash,
+        totalCashOut: cogsCash + sgaCash,
+        interest: interestMan,
+        source: src,
+        breakdown: { personnelCost, outsourceCost, infraCost, bizExpCost }
+      };
+    },
+    // 月末の現金預金残高（万円）
+    getClosingCash(ym) {
+      return cashBalances[ym] !== undefined ? cashBalances[ym] / 10000 : null;
+    },
+    // 売上高（万円）
+    getSales(ym) {
+      return salesActual[ym] !== undefined ? salesActual[ym] / 10000 : null;
+    },
+    avgCogs, avgSga, sumObj
+  };
+})();
+
 // ── 請求予定日 → 入金予定月キー(YYYY-MM)を算出 ──
 // billingDateStr: 'YYYY-MM-DD' 形式の請求予定日
 // 戻り値: 翌月のYYYY-MMキー
@@ -9171,7 +9290,7 @@ function buildCashflowData() {
   // 月別集計用マップ
   const monthMap = {};
   months.forEach(ym => {
-    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 };
+    monthMap[ym] = { sales: 0, billing: 0, cashActual: 0, cashForecast: 0, costOut: 0, costSource: 'forecast', interest: 0, depreciation: 0, costBreakdown: null };
   });
 
   // 案件別の予測レコードも保持
@@ -9214,19 +9333,46 @@ function buildCashflowData() {
     });
   });
 
-  // monthlyTotals 配列
-  let cumCash = 0;
-  const monthlyTotals = months.map(ym => {
+  // ── 試算表コストデータを各月に反映 ──
+  months.forEach(ym => {
+    const cost = trialBalanceCosts.getMonthlyCost(ym);
+    monthMap[ym].costOut = cost.totalCashOut;
+    monthMap[ym].costSource = cost.source;
+    monthMap[ym].interest = cost.interest;
+    monthMap[ym].costBreakdown = cost.breakdown;
+    // 試算表に売上実績があれば上書き
+    const tbSales = trialBalanceCosts.getSales(ym);
+    if(tbSales !== null) monthMap[ym].sales = tbSales;
+  });
+
+  // ── 実績月の現金預金残高（貸借対照表）──
+  // 期末残高がわかる月は、そこから期首残高と実際のネットCFを逆算できる
+  const actualClosingCash = {};
+  months.forEach(ym => {
+    const bal = trialBalanceCosts.getClosingCash(ym);
+    if(bal !== null) actualClosingCash[ym] = bal;
+  });
+
+  // ── 投資・財務CF 個別イベント（万円） ──
+  const investFinEvents = {
+    '2026-04': { amount: 139809435 / 10000, label: '第三者割当増資' },
+  };
+
+  // monthlyTotals 配列 ─ CF計算書構造(I〜VII)
+  // 実績月（10月〜3月）: BS現金預金残高から期首・期末を直接設定
+  // 予測月（4月〜）  : 最終実績月の期末残高から営業CF＋財務CFで順算
+
+  // まず各月のCF項目を計算
+  const monthCFs = months.map(ym => {
     const d = monthMap[ym];
     const isPast = ym < currentMonth;
     const isCurrent = ym === currentMonth;
+    const hasActualBal = actualClosingCash[ym] !== undefined;
 
-    // 過去月: 入金実績のみ使用。当月: 実績＋予測。未来月: 予測のみ
     let cashActual = 0, cashForecast = 0;
-    if(isPast) {
-      // 過去月: 実績があればそれ、なければ予測を未回収として扱う
+    if(hasActualBal || isPast) {
       cashActual = d.cashActual;
-      // 過去月で予測入金があるが実績がない → 遅延扱い、表示はしない
+      cashForecast = 0;
     } else if(isCurrent) {
       cashActual = d.cashActual;
       cashForecast = d.cashForecast;
@@ -9234,19 +9380,102 @@ function buildCashflowData() {
       cashForecast = d.cashForecast;
     }
 
-    cumCash += cashActual + cashForecast;
+    const opCashIn = cashActual + cashForecast;
+    const opCashOut = d.costOut;
+    const opNetCF = opCashIn - opCashOut;
+    // 投資・財務CF = −支払利息 ＋ 個別イベント（増資・借入等）
+    const eventCF = investFinEvents[ym] ? investFinEvents[ym].amount : 0;
+    const investFinCF = -d.interest + eventCF;
+    const netChange = opNetCF + investFinCF;
+    const eventLabel = investFinEvents[ym] ? investFinEvents[ym].label : '';
+    return { ym, opCashIn, opCashOut, opNetCF, investFinCF, netChange, cashActual, cashForecast, isPast, isCurrent, hasActualBal, eventCF, eventLabel, d };
+  });
+
+  // 期首・期末残高を設定
+  const openBals = new Array(monthCFs.length).fill(0);
+  const closeBals = new Array(monthCFs.length).fill(0);
+  const actualNetChanges = new Array(monthCFs.length).fill(null);
+
+  // ステップ1: 実績月はBS残高から直接設定
+  // 最初の実績月の期首残高 = 前月の期末残高（前月にBS残高があれば）
+  // 各実績月の期末残高 = actualClosingCash[ym]
+  // ネットCF(実際) = 期末 - 期首
+  const sortedActualYms = months.filter(ym => actualClosingCash[ym] !== undefined);
+
+  if(sortedActualYms.length > 0) {
+    // 最初の実績月の開始: 前月末のBS残高があればそれを使う
+    const firstActualIdx = months.indexOf(sortedActualYms[0]);
+
+    // 各実績月を設定
+    for(let i = 0; i < sortedActualYms.length; i++) {
+      const ym = sortedActualYms[i];
+      const idx = months.indexOf(ym);
+      closeBals[idx] = actualClosingCash[ym];
+
+      if(i === 0) {
+        // 最初の月: 前月のBS残高を探す
+        const prevYm = addMonthKey(ym, -1);
+        if(actualClosingCash[prevYm] !== undefined) {
+          openBals[idx] = actualClosingCash[prevYm];
+        } else {
+          // 前月のBS残高がない → netChangeから逆算不可、closeBal + netChangeで推定
+          // ここでは期末残高とPL上のnetChangeから逆算
+          openBals[idx] = closeBals[idx] - monthCFs[idx].netChange;
+        }
+      } else {
+        // 前月の期末残高 = 当月の期首残高
+        openBals[idx] = closeBals[months.indexOf(sortedActualYms[i-1])];
+      }
+      // 実際のネットCF = 期末 - 期首（PL計算と異なる場合がある＝BS上の資金移動含む）
+      actualNetChanges[idx] = closeBals[idx] - openBals[idx];
+    }
+
+    // ステップ2: 予測月は最終実績月の期末残高から順算
+    const lastActualIdx = months.indexOf(sortedActualYms[sortedActualYms.length - 1]);
+    for(let i = lastActualIdx + 1; i < months.length; i++) {
+      openBals[i] = closeBals[i - 1];
+      closeBals[i] = openBals[i] + monthCFs[i].netChange;
+    }
+
+    // ステップ3: 最初の実績月より前（表示対象の過去月）も逆算
+    for(let i = firstActualIdx - 1; i >= 0; i--) {
+      closeBals[i] = openBals[i + 1];
+      openBals[i] = closeBals[i] - monthCFs[i].netChange;
+    }
+  }
+
+  const monthlyTotals = monthCFs.map((mc, idx) => {
+    const r = v => Math.round(v * 100) / 100;
+    const openBal = r(openBals[idx]);
+    const closeBal = r(closeBals[idx]);
+    // 実績月はBS差額がネットCF、予測月はPL計算のnetChange
+    const netChange = actualNetChanges[idx] !== null ? r(actualNetChanges[idx]) : r(mc.netChange);
+    // 実績月で投資・財務CFにBS差額との差分を反映
+    let investFinCF = r(mc.investFinCF);
+    let opNetCF = r(mc.opNetCF);
+    if(actualNetChanges[idx] !== null) {
+      // BS上の実際のネットCF と PL上の営業CF＋財務CF の差 → 投資・財務CFに吸収
+      const plNetChange = r(mc.netChange);
+      const bsDiff = netChange - plNetChange;
+      investFinCF = r(mc.investFinCF + bsDiff);
+    }
 
     return {
-      ym,
-      label: monthLabel(ym),
-      shortLabel: ym.split('-')[1] + '月',
-      sales: Math.round(d.sales * 100) / 100,
-      billing: Math.round(d.billing * 100) / 100,
-      cashActual: Math.round(cashActual * 100) / 100,
-      cashForecast: Math.round(cashForecast * 100) / 100,
-      cumCash: Math.round(cumCash * 100) / 100,
-      isPast,
-      isCurrent,
+      ym: mc.ym,
+      label: monthLabel(mc.ym),
+      shortLabel: mc.ym.split('-')[1] + '月',
+      sales: r(mc.d.sales), billing: r(mc.d.billing),
+      cashActual: r(mc.cashActual), cashForecast: r(mc.cashForecast),
+      openBal, opCashIn: r(mc.opCashIn), opCashOut: r(mc.opCashOut),
+      opNetCF, investFinCF, netChange, closeBal,
+      costSource: mc.d.costSource,
+      costBreakdown: mc.d.costBreakdown,
+      interest: r(mc.d.interest),
+      eventCF: r(mc.eventCF), eventLabel: mc.eventLabel,
+      isPast: mc.isPast, isCurrent: mc.isCurrent,
+      hasActualBal: mc.hasActualBal,
+      // 旧互換
+      costOut: r(mc.opCashOut), netCash: netChange, cumCash: closeBal,
     };
   });
 
@@ -9284,14 +9513,24 @@ function renderCashflow() {
 
   document.getElementById('cf-metrics').innerHTML = `
     <div class="metric-card blue">
-      <div class="metric-label">当月 入金（実績＋予測）</div>
-      <div class="metric-value">${fmt(thisMonth.cashActual + thisMonth.cashForecast)}</div>
+      <div class="metric-label">II. 当月 営業CF入金</div>
+      <div class="metric-value">${fmt(thisMonth.opCashIn)}</div>
       <div class="metric-change neutral">実績 ${fmt(thisMonth.cashActual)} ／ 予測 ${fmt(thisMonth.cashForecast)}</div>
+    </div>
+    <div class="metric-card" style="border-left:3px solid var(--purple);">
+      <div class="metric-label">III. 当月 営業CF出金</div>
+      <div class="metric-value" style="color:var(--red);">${fmt(thisMonth.opCashOut)}</div>
+      <div class="metric-change neutral">${thisMonth.costSource === 'actual' ? '試算表実績' : '予測（直近6ヶ月平均）'}</div>
+    </div>
+    <div class="metric-card ${(thisMonth.netChange||0) >= 0 ? 'green' : 'red'}">
+      <div class="metric-label">VI. 当月 純増減額</div>
+      <div class="metric-value">${fmt(thisMonth.netChange)}</div>
+      <div class="metric-change neutral">営業CF ${fmt(thisMonth.opNetCF)} ＋ 財務CF ${fmt(thisMonth.investFinCF)}</div>
     </div>
     <div class="metric-card green">
       <div class="metric-label">翌月 入金予測</div>
       <div class="metric-value">${fmt(nextMonth.cashForecast)}</div>
-      <div class="metric-change neutral">当月の請求予定 → 翌月末入金</div>
+      <div class="metric-change neutral">翌月出金予測 ${fmt(nextMonth.opCashOut)}</div>
     </div>
     <div class="metric-card amber">
       <div class="metric-label">未回収残高</div>
@@ -9307,6 +9546,9 @@ function renderCashflow() {
 
   // === チャート ===
   renderCashflowChart(monthlyTotals);
+
+  // === 案件別予測データをグローバルに保持（内訳モーダル用）===
+  _cfOppForecasts = oppForecasts;
 
   // === 月別内訳テーブル ===
   renderCashflowTable(monthlyTotals);
@@ -9332,47 +9574,52 @@ function renderCashflowChart(data) {
       labels,
       datasets: [
         {
-          label: '売上計上',
-          data: data.map(d => d.sales),
-          backgroundColor: isDark ? 'rgba(56,138,221,0.45)' : 'rgba(24,95,165,0.35)',
+          label: 'II. 営業CF入金',
+          data: data.map(d => d.opCashIn),
+          backgroundColor: isDark ? 'rgba(29,158,117,0.55)' : 'rgba(29,158,117,0.45)',
           borderRadius: 3,
           order: 4,
-          barPercentage: 0.7,
+          barPercentage: 0.75,
         },
         {
-          label: '請求額',
-          data: data.map(d => d.billing),
-          backgroundColor: isDark ? 'rgba(29,158,117,0.45)' : 'rgba(29,158,117,0.35)',
+          label: 'III. 営業CF出金',
+          data: data.map(d => -d.opCashOut),
+          backgroundColor: isDark ? 'rgba(226,75,74,0.45)' : 'rgba(226,75,74,0.3)',
+          borderColor: isDark ? 'rgba(226,75,74,0.7)' : 'rgba(226,75,74,0.5)',
+          borderWidth: 1,
           borderRadius: 3,
           order: 3,
-          barPercentage: 0.7,
+          barPercentage: 0.75,
         },
         {
-          label: '入金実績',
-          data: data.map(d => d.cashActual),
-          backgroundColor: isDark ? 'rgba(239,159,39,0.7)' : 'rgba(186,117,23,0.55)',
+          label: 'V. 投資・財務CF',
+          data: data.map(d => d.investFinCF),
+          backgroundColor: isDark ? 'rgba(83,74,183,0.45)' : 'rgba(83,74,183,0.3)',
           borderRadius: 3,
           order: 2,
-          barPercentage: 0.7,
+          barPercentage: 0.75,
         },
         {
-          label: '入金予測',
-          data: data.map(d => d.cashForecast),
-          backgroundColor: isDark ? 'rgba(239,159,39,0.25)' : 'rgba(186,117,23,0.18)',
-          borderColor: isDark ? 'rgba(239,159,39,0.6)' : 'rgba(186,117,23,0.45)',
-          borderWidth: 1,
-          borderDash: [4, 2],
-          borderRadius: 3,
+          label: 'VI. 純増減額',
+          data: data.map(d => d.netChange),
+          type: 'line',
+          borderColor: isDark ? '#1D9E75' : '#1D9E75',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          pointRadius: 4,
+          pointBackgroundColor: data.map(d => d.netChange >= 0 ? '#1D9E75' : '#E24B4A'),
+          tension: 0.3,
+          yAxisID: 'y',
           order: 1,
-          barPercentage: 0.7,
         },
         {
-          label: '累積キャッシュ',
-          data: data.map(d => d.cumCash),
+          label: 'VII. 期末残高',
+          data: data.map(d => d.closeBal),
           type: 'line',
           borderColor: isDark ? '#E24B4A' : '#A32D2D',
           backgroundColor: 'transparent',
-          borderWidth: 2,
+          borderWidth: 2.5,
           pointRadius: 3,
           pointBackgroundColor: isDark ? '#E24B4A' : '#A32D2D',
           tension: 0.3,
@@ -9443,64 +9690,205 @@ function renderCashflowChart(data) {
 function renderCashflowTable(monthlyTotals) {
   if(!monthlyTotals) monthlyTotals = buildCashflowData().monthlyTotals;
 
+  // ── 横型月次CF計算書テーブル ──
+  // 行: I〜VII の各項目、列: 各月
+
+  const hdrStyle = 'padding:6px 10px;text-align:right;font-size:11px;white-space:nowrap;min-width:100px;';
+  const rowLabelStyle = 'padding:8px 10px;font-weight:500;white-space:nowrap;position:sticky;left:0;z-index:1;';
+  const cellStyle = 'padding:6px 10px;text-align:right;font-size:12px;white-space:nowrap;';
+
   // ヘッダー
   let thead = '<tr>';
-  thead += '<th style="padding:8px 10px;text-align:left;min-width:100px;position:sticky;left:0;background:var(--bg-secondary);z-index:1;">月</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">売上計上</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">請求額</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">入金実績</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">入金予測</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">入金計</th>';
-  thead += '<th style="padding:8px 10px;text-align:right;">累積CF</th>';
-  thead += '<th style="padding:8px 10px;text-align:center;">状態</th></tr>';
+  thead += `<th style="${rowLabelStyle}background:var(--bg-secondary);min-width:200px;text-align:left;">項目</th>`;
+  monthlyTotals.forEach(m => {
+    const bg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-secondary)';
+    thead += `<th style="${hdrStyle}background:${bg};">${m.shortLabel}${m.isCurrent ? '<br><span class="badge badge-blue" style="font-size:9px;">当月</span>' : (m.hasActualBal ? '<br><span class="badge badge-green" style="font-size:9px;">確定</span>' : (!m.isPast ? '<br><span class="badge badge-gray" style="font-size:9px;">予測</span>' : ''))}</th>`;
+  });
+  thead += '</tr>';
   document.getElementById('cf-thead').innerHTML = thead;
 
+  // CF行定義
+  const rows = [
+    { key: 'openBal',     label: 'I. 期首現金残高',          cls: 'section-head', color: '' },
+    { key: 'opCashIn',    label: 'II. 営業CF（入金）',       cls: 'sub', color: 'var(--green)' },
+    { key: '_cashDetail', label: '　　入金実績',             cls: 'detail', color: '' },
+    { key: '_cashFcst',   label: '　　入金予測',             cls: 'detail', color: 'var(--amber)' },
+    { key: 'opCashOut',   label: 'III. 営業CF（出金）',      cls: 'sub', color: 'var(--red)' },
+    { key: '_personnel',  label: '　　人件費',               cls: 'detail', color: '' },
+    { key: '_outsource',  label: '　　外注・専門家',          cls: 'detail', color: '' },
+    { key: '_infra',      label: '　　通信・家賃・設備',      cls: 'detail', color: '' },
+    { key: '_bizexp',     label: '　　旅費・交際・その他',     cls: 'detail', color: '' },
+    { key: 'opNetCF',     label: 'IV. 営業CF差引額',         cls: 'section-head', color: '' },
+    { key: 'investFinCF', label: 'V. 投資・財務CF',          cls: 'sub', color: 'var(--purple)' },
+    { key: '_interest',   label: '　　支払利息',             cls: 'detail', color: '' },
+    { key: '_event',      label: '　　増資・借入等',          cls: 'detail', color: 'var(--green)' },
+    { key: 'netChange',   label: 'VI. 当月純増減額',         cls: 'total', color: '' },
+    { key: 'closeBal',    label: 'VII. 期末現金残高',         cls: 'total-end', color: '' },
+  ];
+
   let html = '';
-  monthlyTotals.forEach(m => {
-    const isFuture = !m.isPast && !m.isCurrent;
-    const cashTotal = m.cashActual + m.cashForecast;
-    const bgStyle = m.isCurrent ? 'background:var(--accent-light);' : '';
-    const cfColor = m.cumCash < 0 ? 'color:var(--red);font-weight:600;' : '';
-    const stickyBg = m.isCurrent ? 'var(--accent-light)' : 'var(--bg-primary)';
+  rows.forEach(row => {
+    const isSectionHead = row.cls === 'section-head';
+    const isTotal = row.cls === 'total' || row.cls === 'total-end';
+    const isDetail = row.cls === 'detail';
+    const rowBg = isTotal ? 'background:var(--bg-secondary);' : '';
+    const fontW = (isSectionHead || isTotal) ? 'font-weight:600;' : (isDetail ? 'font-weight:400;color:var(--text-muted);font-size:11px;' : '');
+    const stickyBg = isTotal ? 'var(--bg-secondary)' : 'var(--bg-primary)';
+    const borderTop = (row.key === 'opNetCF' || row.key === 'netChange' || row.key === 'closeBal') ? 'border-top:1px solid var(--border-medium);' : '';
 
-    let statusBadge = '';
-    if(m.isCurrent) statusBadge = '<span class="badge badge-blue">当月</span>';
-    else if(isFuture) statusBadge = '<span class="badge badge-gray">予測</span>';
-    else statusBadge = '<span class="badge badge-green">確定</span>';
+    html += `<tr style="${rowBg}${borderTop}">`;
+    html += `<td style="${rowLabelStyle}${fontW}background:${stickyBg};">${row.label}</td>`;
 
-    const dash = '<span style="color:var(--text-muted);">—</span>';
-    html += `<tr style="${bgStyle}">`;
-    html += `<td style="padding:8px 10px;font-weight:500;position:sticky;left:0;background:${stickyBg};z-index:1;">${m.label}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;">${m.sales ? fmt(m.sales) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;">${m.billing ? fmt(m.billing) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;">${m.cashActual ? fmt(m.cashActual) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;${isFuture||m.isCurrent ? 'font-style:italic;color:var(--amber);' : ''}">${m.cashForecast ? fmt(m.cashForecast) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;font-weight:500;">${cashTotal ? fmt(cashTotal) : dash}</td>`;
-    html += `<td style="padding:8px 10px;text-align:right;font-weight:600;${cfColor}">${fmt(m.cumCash)}</td>`;
-    html += `<td style="padding:8px 10px;text-align:center;">${statusBadge}</td>`;
+    monthlyTotals.forEach(m => {
+      const bg = m.isCurrent ? 'background:var(--accent-light);' : '';
+      let val = 0;
+      switch(row.key) {
+        case 'openBal': val = m.openBal; break;
+        case 'opCashIn': val = m.opCashIn; break;
+        case '_cashDetail': val = m.cashActual; break;
+        case '_cashFcst': val = m.cashForecast; break;
+        case 'opCashOut': val = m.opCashOut; break;
+        case '_personnel': val = m.costBreakdown?.personnelCost || 0; break;
+        case '_outsource': val = m.costBreakdown?.outsourceCost || 0; break;
+        case '_infra': val = m.costBreakdown?.infraCost || 0; break;
+        case '_bizexp': val = m.costBreakdown?.bizExpCost || 0; break;
+        case 'opNetCF': val = m.opNetCF; break;
+        case 'investFinCF': val = m.investFinCF; break;
+        case '_interest': val = -m.interest; break;
+        case '_event': val = m.eventCF || 0; break;
+        case 'netChange': val = m.netChange; break;
+        case 'closeBal': val = m.closeBal; break;
+      }
+      const dash = '<span style="color:var(--text-muted);">—</span>';
+      let valColor = row.color || '';
+      if(!valColor && (row.key === 'opNetCF' || row.key === 'netChange' || row.key === 'closeBal')) {
+        valColor = val < 0 ? 'var(--red)' : 'var(--green)';
+      }
+      const forecast = (!m.isPast && !m.isCurrent && row.key !== 'openBal' && row.key !== 'closeBal') ? 'font-style:italic;' : '';
+      const show = (val !== 0 || isTotal || isSectionHead) ? fmt(val) : dash;
+      // 入金行はクリック可能（案件内訳モーダル表示）
+      const isClickable = (row.key === 'opCashIn' || row.key === '_cashDetail' || row.key === '_cashFcst') && val !== 0;
+      const clickAttr = isClickable ? ` onclick="showCfBreakdown('${m.ym}')" style="${cellStyle}${fontW}${bg}${forecast}${valColor ? 'color:'+valColor+';' : ''}cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"` : ` style="${cellStyle}${fontW}${bg}${forecast}${valColor ? 'color:'+valColor+';' : ''}"`;
+      html += `<td${clickAttr}>${show}</td>`;
+    });
     html += '</tr>';
   });
   document.getElementById('cf-tbody').innerHTML = html;
 
-  // フッター
+  // フッター（期間合計）
   const totals = monthlyTotals.reduce((acc, m) => {
-    acc.sales += m.sales; acc.billing += m.billing;
-    acc.cashActual += m.cashActual; acc.cashForecast += m.cashForecast;
+    acc.opCashIn += m.opCashIn; acc.opCashOut += m.opCashOut;
+    acc.opNetCF += m.opNetCF; acc.investFinCF += m.investFinCF;
+    acc.netChange += m.netChange;
     return acc;
-  }, { sales: 0, billing: 0, cashActual: 0, cashForecast: 0 });
+  }, { opCashIn: 0, opCashOut: 0, opNetCF: 0, investFinCF: 0, netChange: 0 });
+  const last = monthlyTotals[monthlyTotals.length - 1] || {};
 
-  document.getElementById('cf-tfoot').innerHTML = `
-    <tr>
-      <td style="padding:8px 10px;font-weight:600;">合計</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.sales)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.billing)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--amber);">${fmt(totals.cashForecast)}</td>
-      <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(totals.cashActual + totals.cashForecast)}</td>
-      <td style="padding:8px 10px;"></td>
-      <td style="padding:8px 10px;"></td>
-    </tr>
-  `;
+  let tfoot = '<tr style="background:var(--bg-tertiary);font-weight:600;">';
+  tfoot += `<td style="${rowLabelStyle}background:var(--bg-tertiary);">期間合計</td>`;
+  // 合計行は1つのセルに統合
+  const colSpan = monthlyTotals.length;
+  tfoot += `<td colspan="${colSpan}" style="padding:8px 10px;font-size:12px;">`;
+  tfoot += `営業CF入金計: ${fmt(totals.opCashIn)}　／　`;
+  tfoot += `<span style="color:var(--red);">営業CF出金計: ${fmt(totals.opCashOut)}</span>　／　`;
+  tfoot += `<span style="${totals.opNetCF < 0 ? 'color:var(--red);' : 'color:var(--green);'}">営業CF差引計: ${fmt(totals.opNetCF)}</span>　／　`;
+  tfoot += `<span style="color:var(--purple);">投資・財務CF計: ${fmt(totals.investFinCF)}</span>　／　`;
+  tfoot += `<span style="${totals.netChange < 0 ? 'color:var(--red);' : 'color:var(--green);'}font-weight:700;">純増減合計: ${fmt(totals.netChange)}</span>`;
+  tfoot += '</td></tr>';
+  document.getElementById('cf-tfoot').innerHTML = tfoot;
+}
+
+// ── グローバル: 直近のoppForecasts保持（モーダルから参照） ──
+let _cfOppForecasts = [];
+
+// ── 月別入金内訳モーダル ──
+function showCfBreakdown(ym) {
+  if(!_cfOppForecasts.length) return;
+  const labelYm = monthLabel(ym);
+
+  // 対象月に入金（paymentYm）がある案件レコードを集約
+  const breakdown = [];
+  _cfOppForecasts.forEach(({ opp, records, weight }) => {
+    records.forEach(r => {
+      if(r.paymentYm !== ym) return;
+      const amt = (r.cashAmt > 0 ? r.cashAmt : r.billingAmt) * weight;
+      if(amt <= 0) return;
+      breakdown.push({
+        customer: opp.customer || '—',
+        name: opp.name || '—',
+        stage: opp.stage || '',
+        recog: opp.recog || '',
+        billingYm: r.billingYm,
+        billingDate: r.billingDate || '',
+        paymentDate: r.paymentDate || '',
+        amt,
+        isActual: r.cashAmt > 0,
+        source: r.source,
+        prob: opp.prob,
+        weight,
+      });
+    });
+  });
+
+  // 顧客ごとに集約
+  const byCustomer = {};
+  breakdown.forEach(b => {
+    if(!byCustomer[b.customer]) byCustomer[b.customer] = { items: [], total: 0 };
+    byCustomer[b.customer].items.push(b);
+    byCustomer[b.customer].total += b.amt;
+  });
+  const grandTotal = breakdown.reduce((s, b) => s + b.amt, 0);
+
+  // HTML構築
+  document.getElementById('cf-breakdown-title').textContent = `${labelYm} 入金予定 案件内訳`;
+  let html = '';
+  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:8px 12px;background:var(--bg-secondary);border-radius:6px;">`;
+  html += `<span style="font-size:13px;font-weight:600;">入金予定合計</span>`;
+  html += `<span style="font-size:16px;font-weight:700;color:var(--green);">${fmt(grandTotal)}</span>`;
+  html += `</div>`;
+
+  if(breakdown.length === 0) {
+    html += '<p style="text-align:center;color:var(--text-muted);padding:24px;">該当月の入金予定はありません</p>';
+  } else {
+    // 顧客別セクション（金額降順）
+    const sortedCustomers = Object.entries(byCustomer).sort((a, b) => b[1].total - a[1].total);
+    sortedCustomers.forEach(([customer, data]) => {
+      html += `<div style="margin-bottom:12px;border:1px solid var(--border-light);border-radius:6px;overflow:hidden;">`;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg-tertiary);border-bottom:1px solid var(--border-light);">`;
+      html += `<span style="font-weight:600;font-size:13px;">${customer}</span>`;
+      html += `<span style="font-weight:600;font-size:13px;color:var(--green);">${fmt(data.total)}<span style="font-size:11px;color:var(--text-muted);margin-left:4px;">(${data.items.length}件)</span></span>`;
+      html += `</div>`;
+      html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
+      html += `<thead><tr style="background:var(--bg-secondary);">`;
+      html += `<th style="padding:6px 10px;text-align:left;">案件名</th>`;
+      html += `<th style="padding:6px 10px;text-align:center;">計上方式</th>`;
+      html += `<th style="padding:6px 10px;text-align:center;">請求月</th>`;
+      html += `<th style="padding:6px 10px;text-align:center;">入金予定日</th>`;
+      html += `<th style="padding:6px 10px;text-align:right;">入金額</th>`;
+      html += `<th style="padding:6px 10px;text-align:center;">種別</th>`;
+      html += `</tr></thead><tbody>`;
+      data.items.sort((a, b) => b.amt - a.amt).forEach(item => {
+        const typeBadge = item.isActual
+          ? '<span class="badge badge-green">入金済</span>'
+          : (item.source === 'actual'
+            ? '<span class="badge badge-amber">未入金</span>'
+            : '<span class="badge badge-gray">予測</span>');
+        const weightNote = item.weight < 1 ? ` <span style="color:var(--text-muted);font-size:10px;">(確度${Math.round(item.prob)}%加重)</span>` : '';
+        html += `<tr style="border-top:1px solid var(--border-light);">`;
+        html += `<td style="padding:6px 10px;">${item.name}${weightNote}</td>`;
+        html += `<td style="padding:6px 10px;text-align:center;"><span class="badge badge-blue">${item.recog || '—'}</span></td>`;
+        html += `<td style="padding:6px 10px;text-align:center;">${monthLabel(item.billingYm)}</td>`;
+        html += `<td style="padding:6px 10px;text-align:center;">${item.paymentDate || '—'}</td>`;
+        html += `<td style="padding:6px 10px;text-align:right;font-weight:500;">${fmt(item.amt)}</td>`;
+        html += `<td style="padding:6px 10px;text-align:center;">${typeBadge}</td>`;
+        html += `</tr>`;
+      });
+      html += `</tbody></table></div>`;
+    });
+  }
+
+  document.getElementById('cf-breakdown-content').innerHTML = html;
+  openModal('cf-breakdown');
 }
 
 function renderCashflowSchedule(oppForecasts) {
@@ -9575,11 +9963,10 @@ function renderCashflowSchedule(oppForecasts) {
 
 function exportCashflowCSV() {
   const { monthlyTotals } = buildCashflowData();
-  let csv = '\uFEFF月,売上計上（万円）,請求額（万円）,入金実績（万円）,入金予測（万円）,入金計（万円）,累積CF（万円）,状態\n';
+  let csv = '\uFEFF月,I.期首残高,II.営業CF入金,入金実績,入金予測,III.営業CF出金,IV.営業CF差引,V.投資財務CF,VI.純増減額,VII.期末残高,状態\n';
   monthlyTotals.forEach(m => {
     const status = m.isCurrent ? '当月' : (m.isPast ? '確定' : '予測');
-    const cashTotal = m.cashActual + m.cashForecast;
-    csv += `${m.label},${m.sales},${m.billing},${m.cashActual},${m.cashForecast},${cashTotal},${m.cumCash},${status}\n`;
+    csv += `${m.label},${m.openBal},${m.opCashIn},${m.cashActual},${m.cashForecast},${m.opCashOut},${m.opNetCF},${m.investFinCF},${m.netChange},${m.closeBal},${status}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
