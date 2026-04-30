@@ -4,9 +4,11 @@
 // PDF添付ファイル管理
 // ============================================================
 // ストレージキー: pdf_{oppId}_{type} → [{name, size, data(base64), uploadedAt}]
-const PDF_TYPES = ['estimate', 'contract', 'invoice', 'delivery'];
-const PDF_LABELS = {estimate:'見積書', contract:'契約書', invoice:'請求書', delivery:'納品書'};
-let currentPdfOppId = null; // 編集中の案件ID
+// var + 未定義チェックで二重ロード時の再宣言エラーを回避
+/* global PDF_TYPES, PDF_LABELS */
+if(typeof PDF_TYPES === 'undefined') var PDF_TYPES = ['estimate', 'contract', 'invoice', 'delivery'];
+if(typeof PDF_LABELS === 'undefined') var PDF_LABELS = {estimate:'見積書', contract:'契約書', invoice:'請求書', delivery:'納品書'};
+if(typeof currentPdfOppId === 'undefined') var currentPdfOppId = null; // 編集中の案件ID
 
 // localStorageキー生成
 function pdfKey(oppId, type) {
@@ -347,7 +349,7 @@ function saveQuoteToOpp() {
     <div class="subject">件名：${subject}</div>
   </div>
   <div class="meta-right" style="position:relative;">
-    <div class="company-name" style="position:relative;display:inline-block;padding-right:${sealType === 'company' ? '54px' : '0'};">${ci.name}${sealType === 'company' ? '<span style="position:absolute;right:-2px;top:-14px;line-height:0;">'+buildCompanySealImg(50)+'</span>' : ''}</div>
+    <div class="company-name">${ci.name}</div>
     ${sealType === 'daihyo' ? '<div style="position:relative;display:inline-block;margin:4px 0;"><div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div><span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'+buildDaihyoSealImg(55)+'</span></div>' : ''}
     ${ci.zip} ${ci.addr1}<br>
     ${ci.addr2}<br>
@@ -877,7 +879,7 @@ function _buildInvoiceHtml() {
   </div>
   <div class="top-right" style="position:relative;">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="4DIN" style="height:36px;width:auto;margin-bottom:3px;display:block;">' : ''}
-    <div class="cname" style="position:relative;display:inline-block;padding-right:${sealType === 'company' ? '54px' : '0'};">${ci.name}${sealType === 'company' ? '<span style="position:absolute;right:-2px;top:-14px;line-height:0;">'+buildCompanySealImg(50)+'</span>' : ''}</div>
+    <div class="cname">${ci.name}</div>
     ${sealType === 'daihyo' ? '<div style="position:relative;display:inline-block;margin:4px 0;"><div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div><span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'+buildDaihyoSealImg(55)+'</span></div>' : ''}
     登録番号　${ci.regNo}<br>
     〒105-0004<br>
