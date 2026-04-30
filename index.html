@@ -1661,7 +1661,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜3月実績、4月〜は直近6ヶ月平均予測・減価償却費除外）　／　投資・財務CF：支払利息＋BS差額
+            入金予測：案件の<strong style="color:var(--text-secondary);">売上回収時期</strong>（請求タイプ・入金サイト）から算出　／　残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜3月実績、4月〜は直近6ヶ月平均予測）
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -9134,15 +9134,36 @@ const trialBalanceCosts = (function() {
 // ── 請求予定日 → 入金予定月キー(YYYY-MM)を算出 ──
 // billingDateStr: 'YYYY-MM-DD' 形式の請求予定日
 // 戻り値: 翌月のYYYY-MMキー
-function billingDateToPaymentYm(billingDateStr) {
+// ── 請求日 + 入金サイト日数 → 入金予定日(YYYY-MM-DD) ──
+function calcPaymentDate(billingDateStr, billingSite) {
   if(!billingDateStr) return '';
   const d = new Date(billingDateStr);
-  const y = d.getFullYear();
-  const m = d.getMonth(); // 0-indexed
-  // 翌月
-  const pm = m + 1;
-  if(pm > 11) return (y + 1) + '-01';
-  return y + '-' + String(pm + 1).padStart(2, '0');
+  if(isNaN(d.getTime())) return '';
+  const site = parseInt(billingSite) || 0;
+  if(site > 0) {
+    // 入金サイト: 請求日 + site日後
+    d.setDate(d.getDate() + site);
+  } else {
+    // デフォルト: 翌月最終営業日
+    d.setMonth(d.getMonth() + 1);
+    // 翌月末日を計算
+    const y = d.getFullYear(), m = d.getMonth();
+    const lastDay = new Date(y, m + 1, 0);
+    const dow = lastDay.getDay();
+    if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
+    else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+    return lastDay.toISOString().split('T')[0];
+  }
+  // 土日なら前倒し
+  const dow = d.getDay();
+  if(dow === 0) d.setDate(d.getDate() - 2);
+  else if(dow === 6) d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+function billingDateToPaymentYm(billingDateStr, billingSite) {
+  const pd = calcPaymentDate(billingDateStr, billingSite);
+  return pd ? pd.slice(0, 7) : '';
 }
 
 // ── 月キー → その月の最終営業日(YYYY-MM-DD) ──
@@ -9156,9 +9177,11 @@ function lastBizDayOfMonth(ymKey) {
 }
 
 // ── 案件ごとに全月の請求予定と入金予定を構築 ──
+// 入金予測は「売上回収時期」（billingType / billingSite）を優先使用
 function buildOppBillingForecast(opp, forecastEndYm) {
   const records = []; // [{billingYm, billingDate, billingAmt, paymentYm, paymentDate, source}]
   const oppId = opp.id;
+  const site = opp.billingSite || 0; // 入金サイト（日数）
 
   // (1) 既に db.monthly に請求データがある月（実績＋手入力済み）
   const existingBillingYms = new Set();
@@ -9171,10 +9194,9 @@ function buildOppBillingForecast(opp, forecastEndYm) {
 
     // 請求日: m.billingDate → 月末フォールバック
     const billingDate = m.billingDate || lastBizDayOfMonth(ym);
-    // 入金予定月: 請求日の翌月
-    const paymentYm = billingDateToPaymentYm(billingDate);
-    // 入金予定日: 翌月最終営業日
-    const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+    // 入金予定: 案件の入金サイトで計算
+    const paymentDate = m.paymentDate || calcPaymentDate(billingDate, site);
+    const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
     // 入金実績
     const cashAmt = m.cash || 0;
 
@@ -9190,10 +9212,11 @@ function buildOppBillingForecast(opp, forecastEndYm) {
   });
 
   // (2) 将来月の請求予測（まだ db.monthly にないもの）
-  if(opp.recog === '月額按分' && opp.start && opp.end) {
-    // 月額按分: 契約期間の各月に均等請求
+  // 売上回収時期（billingType）に基づいて請求スケジュールを予測
+  if(opp.billingType === 'monthly' && opp.start) {
+    // 月次請求: 契約期間の各月に月次請求
     const startYm = opp.start.slice(0, 7);
-    const endYm   = opp.end.slice(0, 7);
+    const endYm   = opp.end ? opp.end.slice(0, 7) : forecastEndYm;
     const totalMonths = monthsBetween(startYm, endYm) + 1;
     if(totalMonths > 0) {
       const monthlyAmt = Math.round((opp.amount / totalMonths) * 10000) / 10000;
@@ -9201,63 +9224,104 @@ function buildOppBillingForecast(opp, forecastEndYm) {
       for(let i = 0; i < totalMonths && ym <= forecastEndYm; i++) {
         if(!existingBillingYms.has(ym) && ym > currentMonth) {
           const billingDate = lastBizDayOfMonth(ym);
-          const paymentYm = billingDateToPaymentYm(billingDate);
-          const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+          const paymentDate = calcPaymentDate(billingDate, site);
+          const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
           records.push({
-            billingYm: ym,
-            billingDate,
-            billingAmt: monthlyAmt,
-            paymentYm,
-            paymentDate,
-            cashAmt: 0,
-            source: 'forecast',
+            billingYm: ym, billingDate, billingAmt: monthlyAmt,
+            paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
           });
         }
         ym = nextMonthKey(ym);
       }
     }
-  } else if(opp.recog === '進行基準') {
-    // 進行基準: db.monthly のスケジュール(sales)から未請求月を予測
-    const allYms = Object.keys(db.monthly).sort();
-    allYms.forEach(ym => {
-      if(ym <= currentMonth) return;
-      if(ym > forecastEndYm) return;
-      if(existingBillingYms.has(ym)) return;
-      const m = db.monthly[ym]?.[oppId];
-      if(!m || (m.sales || 0) <= 0) return;
-      const salesAmt = m.sales;
-      const billingDate = lastBizDayOfMonth(ym);
-      const paymentYm = billingDateToPaymentYm(billingDate);
-      const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
-      records.push({
-        billingYm: ym,
-        billingDate,
-        billingAmt: salesAmt,
-        paymentYm,
-        paymentDate,
-        cashAmt: 0,
-        source: 'forecast',
-      });
-    });
-  } else if(opp.recog === '一括計上' || opp.recog === '検収基準') {
-    // 一括/検収: まだ一度も請求がなければ、billingDate月に全額請求を予測
+  } else if(opp.billingType === 'lump') {
+    // 一括請求: billingDate月に全額請求
     if(existingBillingYms.size === 0 && opp.amount > 0) {
       const bDateStr = opp.billingDate || opp.start || '';
       if(bDateStr) {
         const billingYm = bDateStr.slice(0, 7);
         if(billingYm > currentMonth && billingYm <= forecastEndYm) {
           const billingDate = opp.billingDate || lastBizDayOfMonth(billingYm);
-          const paymentYm = billingDateToPaymentYm(billingDate);
-          const paymentDate = paymentYm ? lastBizDayOfMonth(paymentYm) : '';
+          const paymentDate = calcPaymentDate(billingDate, site);
+          const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
           records.push({
-            billingYm,
-            billingDate,
-            billingAmt: opp.amount,
-            paymentYm,
-            paymentDate,
-            cashAmt: 0,
-            source: 'forecast',
+            billingYm, billingDate, billingAmt: opp.amount,
+            paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
           });
+        }
+      }
+    }
+  } else if(opp.billingType === 'milestone') {
+    // マイルストーン: db.monthly のスケジュール(billing or sales)から予測
+    const allYms = Object.keys(db.monthly).sort();
+    allYms.forEach(ym => {
+      if(ym <= currentMonth) return;
+      if(ym > forecastEndYm) return;
+      if(existingBillingYms.has(ym)) return;
+      const m = db.monthly[ym]?.[oppId];
+      if(!m) return;
+      const amt = m.billing || m.sales || 0;
+      if(amt <= 0) return;
+      const billingDate = m.billingDate || lastBizDayOfMonth(ym);
+      const paymentDate = calcPaymentDate(billingDate, site);
+      const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+      records.push({
+        billingYm: ym, billingDate, billingAmt: amt,
+        paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+      });
+    });
+  } else {
+    // billingType未設定 → 計上方式(recog)からフォールバック予測
+    if(opp.recog === '月額按分' && opp.start && opp.end) {
+      const startYm = opp.start.slice(0, 7);
+      const endYm   = opp.end.slice(0, 7);
+      const totalMonths = monthsBetween(startYm, endYm) + 1;
+      if(totalMonths > 0) {
+        const monthlyAmt = Math.round((opp.amount / totalMonths) * 10000) / 10000;
+        let ym = startYm;
+        for(let i = 0; i < totalMonths && ym <= forecastEndYm; i++) {
+          if(!existingBillingYms.has(ym) && ym > currentMonth) {
+            const billingDate = lastBizDayOfMonth(ym);
+            const paymentDate = calcPaymentDate(billingDate, site);
+            const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+            records.push({
+              billingYm: ym, billingDate, billingAmt: monthlyAmt,
+              paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+            });
+          }
+          ym = nextMonthKey(ym);
+        }
+      }
+    } else if(opp.recog === '進行基準') {
+      const allYms = Object.keys(db.monthly).sort();
+      allYms.forEach(ym => {
+        if(ym <= currentMonth) return;
+        if(ym > forecastEndYm) return;
+        if(existingBillingYms.has(ym)) return;
+        const m = db.monthly[ym]?.[oppId];
+        if(!m || (m.sales || 0) <= 0) return;
+        const billingDate = lastBizDayOfMonth(ym);
+        const paymentDate = calcPaymentDate(billingDate, site);
+        const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+        records.push({
+          billingYm: ym, billingDate, billingAmt: m.sales,
+          paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+        });
+      });
+    } else if(opp.recog === '一括計上' || opp.recog === '検収基準') {
+      if(existingBillingYms.size === 0 && opp.amount > 0) {
+        const bDateStr = opp.billingDate || opp.start || '';
+        if(bDateStr) {
+          const billingYm = bDateStr.slice(0, 7);
+          if(billingYm > currentMonth && billingYm <= forecastEndYm) {
+            const billingDate = opp.billingDate || lastBizDayOfMonth(billingYm);
+            const paymentDate = calcPaymentDate(billingDate, site);
+            const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+            records.push({
+              billingYm, billingDate, billingAmt: opp.amount,
+              paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+            });
+          }
         }
       }
     }
@@ -9818,6 +9882,8 @@ function showCfBreakdown(ym) {
         name: opp.name || '—',
         stage: opp.stage || '',
         recog: opp.recog || '',
+        billingType: opp.billingType || '',
+        billingSite: opp.billingSite || 0,
         billingYm: r.billingYm,
         billingDate: r.billingDate || '',
         paymentDate: r.paymentDate || '',
@@ -9861,7 +9927,8 @@ function showCfBreakdown(ym) {
       html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
       html += `<thead><tr style="background:var(--bg-secondary);">`;
       html += `<th style="padding:6px 10px;text-align:left;">案件名</th>`;
-      html += `<th style="padding:6px 10px;text-align:center;">計上方式</th>`;
+      html += `<th style="padding:6px 10px;text-align:center;">請求タイプ</th>`;
+      html += `<th style="padding:6px 10px;text-align:center;">入金サイト</th>`;
       html += `<th style="padding:6px 10px;text-align:center;">請求月</th>`;
       html += `<th style="padding:6px 10px;text-align:center;">入金予定日</th>`;
       html += `<th style="padding:6px 10px;text-align:right;">入金額</th>`;
@@ -9874,9 +9941,12 @@ function showCfBreakdown(ym) {
             ? '<span class="badge badge-amber">未入金</span>'
             : '<span class="badge badge-gray">予測</span>');
         const weightNote = item.weight < 1 ? ` <span style="color:var(--text-muted);font-size:10px;">(確度${Math.round(item.prob)}%加重)</span>` : '';
+        const btLabel = {'monthly':'月次','lump':'一括','milestone':'MS'}[item.billingType] || item.recog || '—';
+        const siteLabel = item.billingSite > 0 ? `${item.billingSite}日` : '翌月末';
         html += `<tr style="border-top:1px solid var(--border-light);">`;
         html += `<td style="padding:6px 10px;">${item.name}${weightNote}</td>`;
-        html += `<td style="padding:6px 10px;text-align:center;"><span class="badge badge-blue">${item.recog || '—'}</span></td>`;
+        html += `<td style="padding:6px 10px;text-align:center;"><span class="badge badge-blue">${btLabel}</span></td>`;
+        html += `<td style="padding:6px 10px;text-align:center;font-size:11px;">${siteLabel}</td>`;
         html += `<td style="padding:6px 10px;text-align:center;">${monthLabel(item.billingYm)}</td>`;
         html += `<td style="padding:6px 10px;text-align:center;">${item.paymentDate || '—'}</td>`;
         html += `<td style="padding:6px 10px;text-align:right;font-weight:500;">${fmt(item.amt)}</td>`;
