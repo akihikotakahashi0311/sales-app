@@ -316,6 +316,7 @@ function buildOppBillingForecast(opp, forecastEndYm) {
 function buildCashflowData() {
   const rangeMonths = parseInt(document.getElementById('cf-range')?.value || '12');
   const statusFilter = document.getElementById('cf-status-filter')?.value || '';
+  const searchQ = (document.getElementById('cf-search')?.value || '').toLowerCase().trim();
 
   // 表示対象月リスト: 過去3ヶ月 ～ 当月 ～ 未来N月
   const months = [];
@@ -328,7 +329,14 @@ function buildCashflowData() {
   const opps = db.opportunities.filter(o => {
     if(!matchesScope(o)) return false;
     if(statusFilter === 'pipeline') return !['失注'].includes(o.stage);
-    return o.stage === '受注';
+    if(o.stage !== '受注') return false;
+    // 案件名・顧客名による絞り込み（cf-search）
+    if(searchQ) {
+      const name = (o.name || '').toLowerCase();
+      const customer = (o.customer || '').toLowerCase();
+      if(!name.includes(searchQ) && !customer.includes(searchQ)) return false;
+    }
+    return true;
   });
 
   // パイプラインの場合、確度で加重する
