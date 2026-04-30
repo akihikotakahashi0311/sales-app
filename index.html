@@ -1680,7 +1680,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
           </div>
           <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
-            入金予測：案件の<strong style="color:var(--text-secondary);">売上回収時期</strong>（請求タイプ・入金サイト）から算出　／　残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金・残高：<strong style="color:var(--text-secondary);">残高試算表</strong>実績ベース固定（案件フィルタ・検索では変化しません）
+            入金予測：案件の<strong style="color:var(--text-secondary);">売上回収時期</strong>（請求タイプ・入金サイト）から算出　／　残高：<strong style="color:var(--text-secondary);">貸借対照表</strong>現金預金（10〜3月確定）　／　出金：<strong style="color:var(--text-secondary);">残高試算表</strong>（10〜3月実績、4月〜は直近6ヶ月平均予測）
           </div>
           <div class="card-body" style="padding:16px 18px;">
             <div class="chart-wrap" style="height:340px;"><canvas id="cf-chart"></canvas></div>
@@ -1692,7 +1692,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <div class="card-header">
             <span class="card-title">月次キャッシュフロー内訳（I〜VII）</span>
             <div style="display:flex;gap:8px;align-items:center;">
-              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で絞込（入金予測に反映）" style="width:210px;height:32px;font-size:12px;" oninput="renderCashflow()" title="入力すると入金予測が該当案件のみに絞り込まれます（出金・残高は試算表実績のため変わりません）">
+              <input type="text" class="form-control" id="cf-search" placeholder="案件名・顧客で検索" style="width:180px;height:32px;font-size:12px;" oninput="renderCashflow()">
             </div>
           </div>
           <div style="overflow-x:auto;">
@@ -2102,11 +2102,11 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-row">
         <div class="form-group" style="flex:2;">
           <label class="form-label required">案件名</label>
-          <input class="form-control" id="f-opp-name" placeholder="例：ERPシステム導入支援" oninput="clearFieldError('f-opp-name')"><div id="f-opp-name-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
+          <input class="form-control" id="f-opp-name" placeholder="例：ERPシステム導入支援">
         </div>
         <div class="form-group">
           <label class="form-label required">顧客</label>
-          <input class="form-control" id="f-opp-customer" list="customer-list" placeholder="顧客名" oninput="clearFieldError('f-opp-customer')"><div id="f-opp-customer-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
+          <input class="form-control" id="f-opp-customer" list="customer-list" placeholder="顧客名">
           <datalist id="customer-list"></datalist>
         </div>
       </div>
@@ -2145,24 +2145,24 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div class="form-group">
           <label class="form-label required">契約総額（万円）</label>
-          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0" oninput="clearFieldError('f-opp-amount')"><div id="f-opp-amount-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
+          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">契約開始（予定日）</label>
-          <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onOppStartChange();clearFieldError('f-opp-start')"><div id="f-opp-start-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
+          <label class="form-label required">契約開始（予定日）</label>
+          <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onOppStartChange()">
         </div>
         <div class="form-group">
           <label class="form-label">契約終了（予定日）</label>
-          <input class="form-control" id="f-opp-end" type="date" style="height:34px;font-size:13px;" onchange="clearFieldError('f-opp-end')"><div id="f-opp-end-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
+          <input class="form-control" id="f-opp-end" type="date" style="height:34px;font-size:13px;">
         </div>
       </div>
 
       <!-- 月次売上スケジュール（月額按分・進行基準のみ） -->
       <div id="monthly-schedule-section" style="display:none;margin-top:4px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-          <span id="schedule-section-title" style="font-size:12px;font-weight:600;color:var(--text-secondary);">月次売上スケジュール</span>
+          <span id="schedule-section-title" style="font-size:12px;font-weight:600;color:var(--text-secondary);">月次売上スケジュール</span><span id="schedule-required-badge" style="color:var(--red);font-size:12px;"> *</span>
           <select class="form-control" id="sched-range-sel" style="width:160px;height:28px;font-size:11px;" onchange="renderScheduleSection()">
             <option value="contract">契約期間</option>
             <option value="future">将来24ヶ月</option>
@@ -2256,7 +2256,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">請求タイプ</label>
+          <label class="form-label required">請求タイプ</label>
           <select class="form-control" id="f-opp-billing-type" onchange="onBillingTypeChange()">
             <option value="">未設定</option>
             <option value="monthly">月次請求（毎月末）</option>
@@ -2271,7 +2271,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </div>
       <div class="form-row" id="f-opp-billing-date-row">
         <div class="form-group" id="f-opp-billing-date-group">
-          <label class="form-label" id="f-opp-billing-date-label">請求予定日</label>
+          <label class="form-label required" id="f-opp-billing-date-label">請求予定日</label>
           <input class="form-control" type="date" id="f-opp-billing-date" oninput="calcPaymentDueDate()">
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="f-opp-billing-date-hint"></div>
         </div>
@@ -2388,7 +2388,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-row">
         <div class="form-group">
           <label class="form-label required">顧客名</label>
-          <input class="form-control" id="f-cust-name" oninput="clearFieldError('f-cust-name')"><div id="f-cust-name-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div>
+          <input class="form-control" id="f-cust-name">
         </div>
         <div class="form-group">
           <label class="form-label">業種</label>
@@ -2466,7 +2466,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
     <div class="modal-body">
       <input type="hidden" id="f-org-id">
       <div class="form-row">
-        <div class="form-group"><label class="form-label required">部門名</label><input class="form-control" id="f-org-name" oninput="clearFieldError('f-org-name')"><div id="f-org-name-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
+        <div class="form-group"><label class="form-label required">部門名</label><input class="form-control" id="f-org-name"></div>
         <div class="form-group"><label class="form-label">マネージャー</label><select class="form-control" id="f-org-manager"></select></div>
       </div>
       <div class="form-group"><label class="form-label">売上予算（万円）</label><input class="form-control" id="f-org-budget" type="text" inputmode="decimal"
@@ -2945,7 +2945,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <input type="hidden" id="f-act-id">
       <div class="form-row">
         <div class="form-group"><label class="form-label required">日時</label>
-          <input class="form-control" id="f-act-date" type="datetime-local" style="height:34px;font-size:13px;" onchange="clearFieldError('f-act-date')"><div id="f-act-date-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
+          <input class="form-control" id="f-act-date" type="datetime-local" style="height:34px;font-size:13px;"></div>
         <div class="form-group"><label class="form-label required">種別</label>
           <select class="form-control" id="f-act-type">
             <option>商談</option><option>電話</option><option>メール</option>
@@ -2962,7 +2962,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <input class="form-control" id="f-act-next" type="text" placeholder="例：提案書送付"></div>
       </div>
       <div class="form-group"><label class="form-label required">内容</label>
-        <textarea class="form-control" id="f-act-content" rows="4" oninput="clearFieldError('f-act-content')"></textarea><div id="f-act-content-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
+        <textarea class="form-control" id="f-act-content" rows="4"></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('activity')">キャンセル</button>
@@ -2979,10 +2979,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
     <div class="modal-body">
       <input type="hidden" id="f-task-id">
       <div class="form-group"><label class="form-label required">タスク内容</label>
-        <input class="form-control" id="f-task-title" type="text" oninput="clearFieldError('f-task-title')"><div id="f-task-title-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
+        <input class="form-control" id="f-task-title" type="text"></div>
       <div class="form-row">
         <div class="form-group"><label class="form-label required">期限</label>
-          <input class="form-control" id="f-task-due" type="date" style="height:34px;font-size:13px;" onchange="clearFieldError('f-task-due')"><div id="f-task-due-error" style="color:var(--red);font-size:11px;margin-top:2px;"></div></div>
+          <input class="form-control" id="f-task-due" type="date" style="height:34px;font-size:13px;"></div>
         <div class="form-group"><label class="form-label">優先度</label>
           <select class="form-control" id="f-task-priority">
             <option value="normal">通常</option><option value="high">高</option><option value="urgent">緊急</option>
