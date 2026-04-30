@@ -2253,17 +2253,32 @@ function autoSetBillingFromOpp(opp, force=false) {
 
       // 月次売上スケジュールの sales を請求額として設定
       const salesAmt = m.sales || 0;
-      // sales が 0 の月は請求額を設定しない（monthly は全月走査するが未入力月はスキップ）
-      if(salesAmt <= 0 && !force) return;
+      const hasSales = salesAmt > 0;
 
-      // 各月の月末日を請求予定日として算出
+      // 売上予定のない月はスキップ（force でも請求予定日はセットしない）
+      // ただし monthly で force=true の場合、契約期間中の売上0の月は請求額を 0 にクリアする
+      if(!hasSales) {
+        if(opp.billingType === 'monthly' && force) {
+          m.billing = 0;
+        }
+        return;
+      }
+
+      // 各月の月末営業日を請求予定日として算出（土日は前の金曜日に前倒し）
+      // ※ toISOString() は UTC 変換で日付がずれるため、ローカル日付文字列を直接組み立てる
       const [y, mo] = ym.split('-').map(Number);
-      const lastDay = new Date(y, mo, 0);
-      const billingDate = lastDay.toISOString().split('T')[0];
+      const lastDay = new Date(y, mo, 0); // mo月の末日（1-12 のまま渡すと翌月0日 = 当月末）
+      const dow = lastDay.getDay();
+      if(dow === 0)      lastDay.setDate(lastDay.getDate() - 2); // 日曜→金曜
+      else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1); // 土曜→金曜
+      const billingDate =
+        lastDay.getFullYear() + '-' +
+        String(lastDay.getMonth() + 1).padStart(2, '0') + '-' +
+        String(lastDay.getDate()).padStart(2, '0');
 
       // 請求額
       if(force || !(m.billing > 0)) {
-        m.billing = salesAmt > 0 ? salesAmt : 0;
+        m.billing = salesAmt;
       }
       // 請求予定日
       if(force || !m.billingDate) {
