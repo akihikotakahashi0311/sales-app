@@ -243,6 +243,13 @@ body {
 
 /* ===== TABLES ===== */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* 月次管理など長いテーブルは max-height で横SBを画面内に固定 */
+#page-monthly .table-wrap,
+#page-opportunities .table-wrap,
+#page-payment .table-wrap {
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
+}
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th {
   text-align: left;
@@ -375,6 +382,11 @@ tfoot td {
 }
 .modal-close:hover { background: var(--bg-secondary); color: var(--text-primary); }
 .modal-body { padding: 20px; }
+/* 案件詳細など縦長モーダルのbody */
+#modal-opp-detail .modal-body {
+  max-height: calc(90vh - 140px);
+  overflow-y: auto;
+}
 .modal-footer {
   display: flex;
   align-items: center;
