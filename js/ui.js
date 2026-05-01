@@ -114,12 +114,14 @@ function renderCustomerReport() {
     byCustomer[o.customer].segment=c.segment||'—';
   });
   // ソート適用
+  // BUG-2対策: 分割代入の変数名 db がグローバル変数 db をシャドウイングしていたため
+  //            dataA / dataB に変更。
   let custEntries = Object.entries(byCustomer);
-  custEntries.sort(([na,da],[nb,db]) => {
+  custEntries.sort(([nameA, dataA], [nameB, dataB]) => {
     let va, vb;
-    if(custSortKey === 'name')        { va = na; vb = nb; }
-    else if(custSortKey === 'uncollected') { va = da.billing-da.cash; vb = db.billing-db.cash; }
-    else { va = da[custSortKey] ?? 0; vb = db[custSortKey] ?? 0; }
+    if(custSortKey === 'name')        { va = nameA; vb = nameB; }
+    else if(custSortKey === 'uncollected') { va = dataA.billing - dataA.cash; vb = dataB.billing - dataB.cash; }
+    else { va = dataA[custSortKey] ?? 0; vb = dataB[custSortKey] ?? 0; }
     if(typeof va === 'number') return (va - vb) * custSortDir;
     return String(va).localeCompare(String(vb), 'ja') * custSortDir;
   });

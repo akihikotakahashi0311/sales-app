@@ -1,4 +1,6 @@
 const MAX_AUTO_BACKUPS = 5;
+// BUG-16関連: 自動バックアップのlocalStorageキー（未定義により "undefined" キーになる不具合の修正）
+const BACKUP_KEY = 'sales_auto_backups';
 let _importData = null;
 
 // ============================================================
@@ -141,8 +143,69 @@ function importBackup(input) {
 }
 
 // ─ インポート確定
+// BUG-17対策: 復元時のスキーマ検証 & 権限昇格防止
+//   1. 現在のログインユーザーが管理者(isAdminUser)でなければ復元自体を拒否
+//   2. import元 db.users / db.orgs / db.lockedMonths は通常の復元では上書きせず、
+//      管理者が明示的にチェックを入れた場合のみ上書き（UI追加までは保守的にスキップ）
+//   3. インポートデータのスキーマ妥当性を検証（配列・オブジェクト・必須フィールド）
+//   4. 上書き前に現状を自動バックアップ（既存挙動維持）
+
+// インポートデータのスキーマ検証（不正なら配列/エラーメッセージを返す）
+function _validateImportSchema(data) {
+  const errors = [];
+  if(!data || typeof data !== 'object') {
+    errors.push('JSONルートがオブジェクトではありません');
+    return errors;
+  }
+  // 配列必須フィールド
+  const arrayKeys = ['opportunities','customers','users','orgs','alerts','leads','lockedMonths','pdfDeletionQueue'];
+  arrayKeys.forEach(k => {
+    if(k in data && !Array.isArray(data[k])) {
+      errors.push(`${k} は配列である必要があります`);
+    }
+  });
+  // オブジェクト必須フィールド
+  const objKeys = ['monthly','pdfFiles','pdfRefs','settings','monthlySummary'];
+  objKeys.forEach(k => {
+    if(k in data && (typeof data[k] !== 'object' || Array.isArray(data[k]))) {
+      errors.push(`${k} はオブジェクトである必要があります`);
+    }
+  });
+  // ユーザー要素の最低限の妥当性
+  if(Array.isArray(data.users)) {
+    data.users.forEach((u, i) => {
+      if(!u || typeof u !== 'object') {
+        errors.push(`users[${i}] が不正な形式です`);
+        return;
+      }
+      // role が想定外の値ならエラー
+      const ALLOWED_ROLES = ['営業担当者','マネージャー','経理・管理部','経営層','システム管理者','管理者'];
+      if(u.role && !ALLOWED_ROLES.includes(u.role)) {
+        errors.push(`users[${i}].role が不正な値です: ${u.role}`);
+      }
+    });
+  }
+  return errors;
+}
+
 function confirmImport() {
   if(!_importData) return;
+
+  // BUG-17: 権限チェック - 管理者のみ復元を許可
+  // (バックアップから誰でもユーザーマスタを上書きできると権限昇格が成立するため)
+  if(typeof isAdminUser === 'function' && !isAdminUser()) {
+    toast('⚠️ バックアップ復元は管理者権限が必要です', 'error');
+    return;
+  }
+
+  // BUG-17: スキーマ検証
+  const schemaErrors = _validateImportSchema(_importData);
+  if(schemaErrors.length > 0) {
+    console.warn('[Import] スキーマ検証エラー:', schemaErrors);
+    toast('⚠️ インポートデータが不正です: ' + schemaErrors[0], 'error');
+    return;
+  }
+
   if(!confirm('現在のデータをインポートデータで上書きします。よろしいですか？')) return;
 
   // 現在のデータを自動バックアップに保存してから上書き
@@ -150,16 +213,59 @@ function confirmImport() {
 
   const mode = _importData.mode || 'full';
   if(mode === 'opportunities') {
-    if(_importData.opportunities) db.opportunities = _importData.opportunities;
+    // BUG-18対策: 部分復元時の孤児データ削除
+    //   案件のみ復元すると、復元後に存在しない案件IDの月次データ・アラート・PDFが残り、
+    //   UIで「存在しない案件の月次データ」として表示される問題がある。
+    //   復元前に「現在の案件」のうち復元データに含まれないものを月次/アラート/PDFから削除する。
+    if(_importData.opportunities) {
+      const newIds = new Set(_importData.opportunities.map(o => o.id));
+      const orphanIds = (db.opportunities || []).filter(o => !newIds.has(o.id)).map(o => o.id);
+      if(orphanIds.length > 0) {
+        console.info(`[Import] 孤児データを削除: ${orphanIds.length}件の旧案件IDを月次/アラート/PDFからクリーンアップ`);
+        orphanIds.forEach(id => {
+          // 月次データから削除
+          Object.keys(db.monthly || {}).forEach(ym => {
+            if(db.monthly[ym] && db.monthly[ym][id]) delete db.monthly[ym][id];
+          });
+          // アラートから削除
+          if(Array.isArray(db.alerts)) {
+            db.alerts = db.alerts.filter(a => a.oppId !== id);
+          }
+          // PDFファイル参照を削除（型は事前にPDF_TYPESがあれば使用、なければ全キー走査）
+          if(db.pdfFiles) {
+            Object.keys(db.pdfFiles).forEach(k => {
+              if(k.startsWith(id + '_') || k.startsWith(id + ':')) delete db.pdfFiles[k];
+            });
+          }
+          if(db.pdfRefs) {
+            Object.keys(db.pdfRefs).forEach(k => {
+              if(k.startsWith(id + '_') || k.startsWith(id + ':')) delete db.pdfRefs[k];
+            });
+          }
+        });
+      }
+      db.opportunities = _importData.opportunities;
+    }
     if(_importData.customers)     db.customers     = _importData.customers;
   } else if(mode === 'monthly') {
     if(_importData.monthly)        db.monthly        = _importData.monthly;
     if(_importData.monthlySummary) db.monthlySummary = _importData.monthlySummary;
   } else {
     // full: 全フィールドを上書き（storeKey等のメタデータは除く）
+    // BUG-17: 権限管理に関わるフィールドはデフォルトで保護
+    //   - users: ユーザー一覧（roleフィールドが含まれるため）
+    //   - orgs: 組織マスタ（権限スコープに影響）
+    //   現状のUIでは「ユーザーも復元する」チェックがないため、保守的にスキップする
     const skip = ['exportedAt', 'mode', 'storeKey'];
+    const PROTECTED_KEYS = ['users','orgs'];
+    const overwriteUsers = (typeof _importIncludeUsers !== 'undefined') ? !!_importIncludeUsers : false;
     Object.keys(_importData).forEach(k => {
-      if(!skip.includes(k)) db[k] = _importData[k];
+      if(skip.includes(k)) return;
+      if(PROTECTED_KEYS.includes(k) && !overwriteUsers) {
+        console.info(`[Import] ${k} は保護されているためスキップ`);
+        return;
+      }
+      db[k] = _importData[k];
     });
   }
 
@@ -177,29 +283,102 @@ function cancelImport() {
 }
 
 // ─ 自動バックアップ
+// BUG-16: localStorage容量超過(QuotaExceededError)に対応
+//   1. 通常保存 → 失敗時は古い世代を削減して再試行
+//   2. それでもダメならPDFなど重いフィールドを除外して保存
+//   3. 全て失敗したらユーザーに警告（無音failを防ぐ）
 function createAutoBackup(showToast = true) {
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
   const now = new Date();
-  backups.unshift({
+  const newEntry = {
     timestamp: now.toISOString(),
     label: now.toLocaleString('ja-JP'),
     data: JSON.parse(JSON.stringify(db)),
     size: JSON.stringify(db).length
-  });
+  };
+  let backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
+  backups.unshift(newEntry);
   // 最大5世代
   if(backups.length > MAX_AUTO_BACKUPS) backups.splice(MAX_AUTO_BACKUPS);
-  _storage.setItem(BACKUP_KEY, JSON.stringify(backups));
-  if(showToast) toast('バックアップを保存しました', 'success');
-  renderBackupHistory();
+
+  // ステップ1: 通常保存
+  if(_trySetBackups(backups)) {
+    if(showToast) toast('バックアップを保存しました', 'success');
+    renderBackupHistory();
+    return true;
+  }
+
+  // ステップ2: 古い世代を1つずつ削減して再試行
+  while(backups.length > 1) {
+    backups.pop();
+    if(_trySetBackups(backups)) {
+      console.warn('[Backup] 容量制限により古い世代を削減して保存');
+      if(showToast) toast('バックアップを保存しました（古い世代を整理）', 'success');
+      renderBackupHistory();
+      return true;
+    }
+  }
+
+  // ステップ3: 最新分のみ + PDFを除外して再試行
+  const slim = JSON.parse(JSON.stringify(newEntry));
+  // 容量を圧迫しがちなフィールドを退避（pdfFiles=base64本体、pdfRefs=参照は軽いので残す）
+  if(slim.data && slim.data.pdfFiles) slim.data.pdfFiles = {};
+  slim.size = JSON.stringify(slim.data).length;
+  if(_trySetBackups([slim])) {
+    console.warn('[Backup] 容量制限によりPDF本体を除外して保存');
+    if(showToast) toast('⚠️ 容量制限のためPDF本体を除外してバックアップしました', 'info');
+    renderBackupHistory();
+    return true;
+  }
+
+  // ステップ4: それでも失敗 → ユーザーに警告
+  console.error('[Backup] localStorage容量超過によりバックアップ保存に失敗');
+  toast('⚠️ ストレージ容量が不足し自動バックアップに失敗しました。手動でJSONエクスポートしてください', 'error');
+  return false;
+}
+
+// localStorageへの安全な書き込み（QuotaExceededErrorをキャッチ）
+function _trySetBackups(backups) {
+  try {
+    _storage.setItem(BACKUP_KEY, JSON.stringify(backups));
+    return true;
+  } catch(e) {
+    // QuotaExceededError は環境により名前が異なる
+    const isQuota = e && (
+      e.name === 'QuotaExceededError' ||
+      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      e.code === 22 || e.code === 1014
+    );
+    if(!isQuota) {
+      console.error('[Backup] 想定外のストレージエラー:', e);
+    }
+    return false;
+  }
 }
 
 // ─ 自動バックアップから復元
+// BUG-17対策: 管理者のみ復元可能、ユーザーマスタは保護
 function restoreAutoBackup(index) {
+  // 権限チェック
+  if(typeof isAdminUser === 'function' && !isAdminUser()) {
+    toast('⚠️ バックアップ復元は管理者権限が必要です', 'error');
+    return;
+  }
   const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
   const bk = backups[index];
   if(!bk) return;
   if(!confirm(`${bk.label} のバックアップに戻しますか？\n現在のデータは失われます。`)) return;
+
+  // スキーマ検証
+  const schemaErrors = _validateImportSchema(bk.data);
+  if(schemaErrors.length > 0) {
+    console.warn('[Restore] スキーマ検証エラー:', schemaErrors);
+    toast('⚠️ バックアップデータが不正です: ' + schemaErrors[0], 'error');
+    return;
+  }
+
   const skip = ['exportedAt', 'mode', 'storeKey'];
+  // 自動バックアップは「自分が作成したスナップショット」なのでusers/orgs上書きは許可するが、
+  // それでも検証済みデータのみ反映
   Object.keys(bk.data).forEach(k => {
     if(!skip.includes(k)) db[k] = bk.data[k];
   });

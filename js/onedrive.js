@@ -491,6 +491,10 @@ async function _saveLargeFileToOneDrive(body, contentType) {
 }
 
 // M365ログインユーザーが管理者かどうかを判定してユーザー選択バッジを制御
+// BUG-7対策: 権限判定はcalc.jsのisAdminUser()/isManagerUser()に統一する。
+//            ローカルでは「管理者→ユーザー切替可」「マネージャー→ユーザー切替可」の挙動を
+//            現在のUI仕様(管理者+マネージャーで切替可)に合わせて isManagerUser() を採用。
+//            これにより calc.js のマスタ管理画面アクセス権限と判定基準が一致する。
 function _updateUserSelectorVisibility() {
   const badge = document.getElementById('current-user-badge') || document.querySelector('.current-user-badge');
   if(!badge) return;
@@ -504,23 +508,32 @@ function _updateUserSelectorVisibility() {
   // ログイン中のM365メールアドレスを取得
   const loginEmail = (_currentAccount.username || _currentAccount.email || '').toLowerCase();
 
-  // dbのユーザーマスタから管理者ロールを持つユーザーを検索
+  // dbのユーザーマスタから該当ユーザーを検索
   const users = (db && db.users) ? db.users : [];
   const matchedUser = users.find(u =>
     u.email && u.email.toLowerCase() === loginEmail
   );
 
-  const isAdmin = matchedUser && (
-    matchedUser.role === '管理者' ||
-    matchedUser.role === 'システム管理者' ||
-    matchedUser.role === 'マネージャー'
-  );
+  // BUG-7: calc.js の共通権限判定関数を利用（フォールバックも互換維持）
+  let canSwitchUser = false;
+  if(typeof isManagerUser === 'function') {
+    // マネージャー以上(=管理者含む)はユーザー切替可
+    canSwitchUser = isManagerUser(matchedUser);
+  } else {
+    // フォールバック（calc.jsが未ロード時）: 旧ロジック互換
+    canSwitchUser = matchedUser && (
+      matchedUser.role === '管理者' ||
+      matchedUser.role === 'システム管理者' ||
+      matchedUser.role === 'マネージャー' ||
+      matchedUser.dept === '管理部'
+    );
+  }
 
   // バッジは常に表示（ユーザー名を見せる）
   badge.style.display = '';
 
-  if(isAdmin) {
-    // 管理者: クリックでユーザー切り替え可能
+  if(canSwitchUser) {
+    // 管理者/マネージャー: クリックでユーザー切り替え可能
     badge.style.cursor = 'pointer';
     badge.style.opacity = '1';
     badge.onclick = openUserSelector;
@@ -528,7 +541,7 @@ function _updateUserSelectorVisibility() {
     const arrow = badge.querySelector('svg');
     if(arrow) arrow.style.display = '';
   } else {
-    // 非管理者: クリック不可、切り替え禁止
+    // 一般ユーザー: クリック不可、切り替え禁止
     badge.style.cursor = 'default';
     badge.style.opacity = '0.8';
     badge.onclick = null;

@@ -355,15 +355,27 @@ function recalcPOC() {
   toast('進行基準を再計算しました', 'success');
 }
 
+// BUG-19対策: 月次ロック関数に権限チェックを追加
+//   従来は誰でも DevTools から toggleMonthlyLock() を直呼びでロック解除できた。
+//   月次確定は会計上の重要操作であり、管理者または経理権限のみに制限する。
 function toggleMonthlyLock() {
+  // 権限チェック: 管理者または経理ユーザーのみ操作可能
+  const _isAdmin   = (typeof isAdminUser === 'function') ? isAdminUser() : false;
+  const _isFinance = (typeof isFinanceUser === 'function') ? isFinanceUser() : false;
+  if(!(_isAdmin || _isFinance)) {
+    toast('⚠️ 月次確定/解除は管理者または経理権限が必要です', 'error');
+    return;
+  }
+
   const locked = isMonthLocked();
   if(!locked) {
     if(!confirm(`${monthLabel(currentMonth)}を月次確定（ロック）します。入力できなくなります。よろしいですか？`)) return;
+    if(!db.monthlyLocked) db.monthlyLocked = {};
     db.monthlyLocked[currentMonth] = true;
     toast(`${monthLabel(currentMonth)}を確定しました`, 'success');
   } else {
     if(!confirm('確定を解除しますか？')) return;
-    delete db.monthlyLocked[currentMonth];
+    if(db.monthlyLocked) delete db.monthlyLocked[currentMonth];
     toast('確定を解除しました');
   }
   save();

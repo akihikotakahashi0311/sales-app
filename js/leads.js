@@ -3088,6 +3088,45 @@ function saveOpportunity() {
   }
   if(amount < 0) { toast('契約総額を正しく入力してください', 'error'); return; }
 
+  // BUG-13対策: 入力バリデーション強化
+  // 1. 契約金額の上限チェック（万円単位、現実的な上限として9999億万円=想定外を弾く）
+  if(amount > 9_999_999) {
+    toast('契約総額が大きすぎます（999万9999千万円が上限）', 'error');
+    return;
+  }
+  // 2. 契約開始 > 終了の逆転チェック
+  if(startVal && endVal) {
+    if(new Date(startVal) > new Date(endVal)) {
+      toast('契約終了日が契約開始日より前になっています', 'error');
+      return;
+    }
+  }
+  // 3. 確度（probability）の範囲チェック 0–100
+  const probEl = document.getElementById('f-opp-prob');
+  if(probEl) {
+    const probVal = parseFloat(probEl.value);
+    if(!isNaN(probVal) && (probVal < 0 || probVal > 100)) {
+      toast('確度は 0〜100 の範囲で入力してください', 'error');
+      return;
+    }
+  }
+  // 4. 請求予定日が契約期間内かの軽い整合性チェック（警告のみ、ブロックしない）
+  if(_billingDate && startVal && endVal) {
+    const bd = new Date(_billingDate);
+    if(bd < new Date(startVal) || bd > new Date(endVal)) {
+      console.warn('[Validate] 請求予定日が契約期間外ですが、許容します');
+    }
+  }
+  // 5. 入金サイト（billingSite）の妥当性: 0〜120日に収まるか
+  const _bsEl = document.getElementById('f-opp-billing-site');
+  if(_bsEl && _bsEl.value !== '') {
+    const bs = parseInt(_bsEl.value);
+    if(isNaN(bs) || bs < 0 || bs > 120) {
+      toast('入金サイトは 0〜120 の範囲で入力してください', 'error');
+      return;
+    }
+  }
+
   const editId  = document.getElementById('opp-edit-id').value;
   const newStage = document.getElementById('f-opp-stage').value;
   const today    = new Date().toISOString().split('T')[0];
