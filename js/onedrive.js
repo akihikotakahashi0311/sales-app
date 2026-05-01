@@ -52,6 +52,54 @@ let _graphToken = null;
 let _odSyncEnabled = false;
 let _currentAccount = null;
 
+// BUG-9: 楽観ロック用ETag（最後に読み込んだバージョン）
+let _odLastETag = null;
+// BUG-12: 未保存変更があるかのフラグ（beforeunload警告で参照）
+let _odHasUnsavedChanges = false;
+// BUG-11: OneDrive側の安全な単一アップロードサイズ上限（ヘッダ等の余裕含めて4MB）
+const ONEDRIVE_SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
+
+// BUG-4: dbスキーマのサニタイズ - 必須フィールドが欠けていても落ちないように補完
+function _sanitizeDbSchema(raw) {
+  if(!raw || typeof raw !== 'object') {
+    console.warn('[OneDrive] 不正なデータ形式 - 空のdbとして初期化');
+    raw = {};
+  }
+  // 配列必須
+  const arrayKeys = ['opportunities','customers','users','orgs','alerts','leads','pdfDeletionQueue','lockedMonths'];
+  arrayKeys.forEach(k => {
+    if(!Array.isArray(raw[k])) raw[k] = [];
+  });
+  // オブジェクト必須
+  const objectKeys = ['monthly','pdfFiles','pdfRefs','settings'];
+  objectKeys.forEach(k => {
+    if(!raw[k] || typeof raw[k] !== 'object' || Array.isArray(raw[k])) raw[k] = {};
+  });
+  return raw;
+}
+
+// BUG-10: 指数バックオフ付きスリープ
+function _odSleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// BUG-12: 未保存フラグの管理
+function markUnsavedChanges() {
+  _odHasUnsavedChanges = true;
+}
+function clearUnsavedChanges() {
+  _odHasUnsavedChanges = false;
+}
+// beforeunload警告（保存失敗 or 未保存変更がある場合のみ）
+window.addEventListener('beforeunload', function(e) {
+  if(_odHasUnsavedChanges) {
+    e.preventDefault();
+    // 主要ブラウザはreturnValueの中身を表示しないが、設定すれば警告ダイアログが出る
+    e.returnValue = '未保存の変更があります。本当にページを離れますか？';
+    return e.returnValue;
+  }
+});
+
 // MSAL初期化
 async function initMsal() {
   // MSALのロードを最大3秒待つ
@@ -179,10 +227,15 @@ async function loadFromOneDrive() {
     if(res.status === 404) {
       // OneDrive上にファイルがない → 初回：現在のdbをアップロード
       toast('OneDrive上にデータがありません。初期データをアップロードします...', 'success');
+      // BUG-9: 初回保存時はETag不要
+      _odLastETag = null;
       await saveToOneDrive();
       return true;
     }
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    // BUG-9: 楽観ロック用にETagを記録
+    _odLastETag = res.headers.get('ETag') || res.headers.get('etag') || null;
 
     // ★ 暗号化対応: バイト列で受け取り、ヘッダで判定
     const buffer = await res.arrayBuffer();
@@ -210,6 +263,9 @@ async function loadFromOneDrive() {
         toast('🔐 平文データを検出しました。次回保存時に自動的に暗号化されます', 'info');
       }, 500);
     }
+
+    // BUG-4: スキーマ保護 - 必須フィールドの存在確認・初期化
+    remoteDb = _sanitizeDbSchema(remoteDb);
 
     // 常にOneDriveのデータを正として読み込む
     db = remoteDb;
@@ -276,23 +332,160 @@ async function saveToOneDrive() {
       contentType = 'application/json';
     }
 
-    const res = await fetch(
-      `${getGraphEndpoint()}/content`,
-      {
-        method: 'PUT',
-        headers: {
+    // BUG-11: サイズが4MBを超える場合はアップロードセッションで分割アップロード
+    const bodySize = body.byteLength || body.length || 0;
+    if(bodySize > ONEDRIVE_SIMPLE_UPLOAD_LIMIT) {
+      console.info(`[OneDrive] 大容量保存(${(bodySize/1024/1024).toFixed(2)}MB)、アップロードセッション使用`);
+      const ok = await _saveLargeFileToOneDrive(body, contentType);
+      if(ok) {
+        _storage.setItem('sales_last_save', now);
+        clearUnsavedChanges();
+        return true;
+      }
+      return false;
+    }
+
+    // BUG-10: 通常PUTを最大3回リトライ（指数バックオフ）
+    // BUG-9: If-Match ヘッダで楽観ロック
+    const maxRetries = 3;
+    let lastErr = null;
+    for(let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const headers = {
           Authorization: `Bearer ${_graphToken}`,
           'Content-Type': contentType,
-        },
-        body,
+        };
+        // 既知のETagがあれば楽観ロック適用
+        if(_odLastETag) {
+          headers['If-Match'] = _odLastETag;
+        }
+        const res = await fetch(
+          `${getGraphEndpoint()}/content`,
+          { method: 'PUT', headers, body }
+        );
+
+        // 412 Precondition Failed → 競合発生
+        if(res.status === 412) {
+          console.warn('[OneDrive] 412 競合検出（他端末で更新あり）');
+          // ユーザーに通知してリロードを促す
+          toast('⚠️ 他のユーザーがOneDrive上のデータを更新しました。最新データを読み直してから再保存してください', 'error');
+          // 競合検出時は未保存フラグを立てて自動破棄しない
+          markUnsavedChanges();
+          return false;
+        }
+        if(!res.ok) {
+          // 5xx系は一時的エラー → リトライ可、4xx系（401/403除く）は即終了
+          if(res.status >= 500 && res.status < 600 && attempt < maxRetries - 1) {
+            lastErr = new Error(`HTTP ${res.status}`);
+            await _odSleep(500 * Math.pow(2, attempt));
+            continue;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        // 成功 → 新しいETagを記録
+        _odLastETag = res.headers.get('ETag') || res.headers.get('etag') || _odLastETag;
+        _storage.setItem('sales_last_save', now);
+        clearUnsavedChanges();
+        return true;
+      } catch(retryErr) {
+        lastErr = retryErr;
+        // ネットワーク系エラーはリトライ
+        if(attempt < maxRetries - 1) {
+          console.warn(`[OneDrive] 保存失敗 (試行${attempt+1}/${maxRetries}):`, retryErr.message);
+          await _odSleep(500 * Math.pow(2, attempt));
+          continue;
+        }
+        throw retryErr;
       }
-    );
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    _storage.setItem('sales_last_save', now);
-    return true;
+    }
+    throw lastErr || new Error('保存失敗');
   } catch(e) {
     console.warn('[OneDrive] 保存エラー:', e.message);
     toast('⚠️ OneDrive保存に失敗しました。再試行してください', 'error');
+    // BUG-12: 保存失敗時は未保存フラグを立てる
+    markUnsavedChanges();
+    return false;
+  }
+}
+
+// BUG-11: 4MB超のファイルをアップロードセッション(チャンク分割)で保存
+async function _saveLargeFileToOneDrive(body, contentType) {
+  try {
+    // 1. アップロードセッション作成
+    const sessionRes = await fetch(
+      `${getGraphEndpoint()}/createUploadSession`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${_graphToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          item: {
+            '@microsoft.graph.conflictBehavior': 'replace',
+          }
+        })
+      }
+    );
+    if(!sessionRes.ok) throw new Error(`セッション作成失敗 HTTP ${sessionRes.status}`);
+    const session = await sessionRes.json();
+    const uploadUrl = session.uploadUrl;
+    if(!uploadUrl) throw new Error('uploadUrl取得失敗');
+
+    // 2. body を Uint8Array に正規化
+    let bodyBytes;
+    if(body instanceof Uint8Array) bodyBytes = body;
+    else if(body instanceof ArrayBuffer) bodyBytes = new Uint8Array(body);
+    else bodyBytes = new TextEncoder().encode(typeof body === 'string' ? body : JSON.stringify(body));
+
+    // 3. チャンク分割アップロード（5MB単位、320KBの倍数）
+    const CHUNK_SIZE = 5 * 320 * 1024; // 1.6MBの倍数で5MB近辺
+    const total = bodyBytes.byteLength;
+    let offset = 0;
+    while(offset < total) {
+      const end = Math.min(offset + CHUNK_SIZE, total);
+      const chunk = bodyBytes.subarray(offset, end);
+      // リトライ最大3回
+      let chunkOk = false;
+      let lastErr = null;
+      for(let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Length': String(chunk.byteLength),
+              'Content-Range': `bytes ${offset}-${end-1}/${total}`,
+            },
+            body: chunk,
+          });
+          if(res.status === 200 || res.status === 201 || res.status === 202) {
+            chunkOk = true;
+            // 完了時のETag取得（最終チャンクで200/201）
+            if(res.status === 200 || res.status === 201) {
+              const j = await res.json().catch(() => null);
+              if(j && j.eTag) _odLastETag = j.eTag;
+            }
+            break;
+          }
+          if(res.status >= 500 && res.status < 600) {
+            await _odSleep(500 * Math.pow(2, attempt));
+            continue;
+          }
+          throw new Error(`チャンクアップロード失敗 HTTP ${res.status}`);
+        } catch(e) {
+          lastErr = e;
+          if(attempt < 2) { await _odSleep(500 * Math.pow(2, attempt)); continue; }
+          throw e;
+        }
+      }
+      if(!chunkOk) throw lastErr || new Error('チャンクアップロード失敗');
+      offset = end;
+    }
+    return true;
+  } catch(e) {
+    console.error('[OneDrive] 大容量保存エラー:', e.message);
+    toast('⚠️ 大容量データの保存に失敗: ' + e.message, 'error');
     return false;
   }
 }
