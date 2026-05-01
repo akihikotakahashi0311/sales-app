@@ -114,34 +114,33 @@ const trialBalanceCosts = (function() {
   };
 })();
 
-// ── 請求予定日 → 入金予定月キー(YYYY-MM)を算出 ──
-// billingDateStr: 'YYYY-MM-DD' 形式の請求予定日
-// 戻り値: 翌月のYYYY-MMキー
 // ── 請求日 + 入金サイト日数 → 入金予定日(YYYY-MM-DD) ──
+// 仕様（キャッシュフロー予測 入金予測ロジック）:
+//   1. 入金サイト > 0  → 請求日 + サイト日数 が属する月の「月末営業日」を返す
+//   2. 入金サイト = 0/未設定 → 請求日の「翌月末営業日」を返す
 function calcPaymentDate(billingDateStr, billingSite) {
   if(!billingDateStr) return '';
   const d = new Date(billingDateStr);
   if(isNaN(d.getTime())) return '';
   const site = parseInt(billingSite) || 0;
+
+  let targetY, targetM; // 入金予定が属する年・月（0-indexed month）
   if(site > 0) {
-    // 入金サイト: 請求日 + site日後
+    // 入金サイトあり: 請求日 + site日後 が属する月の月末
     d.setDate(d.getDate() + site);
+    targetY = d.getFullYear();
+    targetM = d.getMonth();
   } else {
-    // デフォルト: 翌月最終営業日
-    d.setMonth(d.getMonth() + 1);
-    // 翌月末日を計算
-    const y = d.getFullYear(), m = d.getMonth();
-    const lastDay = new Date(y, m + 1, 0);
-    const dow = lastDay.getDay();
-    if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
-    else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
-    return lastDay.toISOString().split('T')[0];
+    // 入金サイト未設定: 請求日の翌月末
+    targetY = d.getFullYear();
+    targetM = d.getMonth() + 1;
   }
-  // 土日なら前倒し
-  const dow = d.getDay();
-  if(dow === 0) d.setDate(d.getDate() - 2);
-  else if(dow === 6) d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+  // 月末日を取得し、土日なら前倒し
+  const lastDay = new Date(targetY, targetM + 1, 0);
+  const dow = lastDay.getDay();
+  if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
+  else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+  return lastDay.toISOString().split('T')[0];
 }
 
 function billingDateToPaymentYm(billingDateStr, billingSite) {
@@ -167,6 +166,10 @@ function buildOppBillingForecast(opp, forecastEndYm) {
   const site = opp.billingSite || 0; // 入金サイト（日数）
 
   // (1) 既に db.monthly に請求データがある月（実績＋手入力済み）
+  // 当月以降の請求額>0は以下ロジックで入金予測月を決定:
+  //   - 入金サイト > 0  → 請求日 + サイト日数 が属する月の月末
+  //   - 入金サイト = 0/未設定 → 請求日の翌月末
+  //   ※ 月次管理表で paymentDate が手動設定されている場合はそれを優先
   const existingBillingYms = new Set();
   Object.keys(db.monthly).sort().forEach(ym => {
     const m = db.monthly[ym]?.[oppId];
@@ -177,7 +180,7 @@ function buildOppBillingForecast(opp, forecastEndYm) {
 
     // 請求日: m.billingDate → 月末フォールバック
     const billingDate = m.billingDate || lastBizDayOfMonth(ym);
-    // 入金予定: 案件の入金サイトで計算
+    // 入金予定: 案件の入金サイトで計算（手動設定があれば優先）
     const paymentDate = m.paymentDate || calcPaymentDate(billingDate, site);
     const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
     // 入金実績
