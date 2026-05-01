@@ -1247,10 +1247,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <!-- ファイル選択ボタン（初回 or 再選択時） -->
         
-        <!-- 表示範囲切り替え -->
-        <button class="view-scope-btn own" id="view-scope-btn"
+        <!-- 表示範囲切り替え（デフォルトは全件表示） -->
+        <button class="view-scope-btn all" id="view-scope-btn"
           onclick="toggleViewScope()" title="表示切り替え">
-          自分の案件
+          全件表示
         </button>
         <div style="display:flex;align-items:center;gap:4px;">
           <button class="btn btn-sm btn-onedrive" id="btn-onedrive"
