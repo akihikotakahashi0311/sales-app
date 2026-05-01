@@ -193,7 +193,8 @@ const USER_SESSION_KEY = 'sales_current_user';
 // 現在のログインユーザー（name で管理）
 let currentUser = null;  // { id, name, role, dept }
 // 表示スコープ: 'own'=自分の案件のみ, 'all'=全件
-let viewScope = 'own';
+// デフォルトは全員「全件表示」。ユーザーが手動で「自分の案件」に切り替え可能。
+let viewScope = 'all';
 
 // ─ 初期化（DOMContentLoaded で呼ぶ）
 
@@ -293,7 +294,8 @@ function initUserSession() {
       currentUser = found;
       _storage.setItem(USER_SESSION_KEY, JSON.stringify(found));
       updateUserUI();
-      viewScope = (found.role === 'マネージャー' || found.role === '管理者') ? 'all' : 'own';
+      // デフォルトは全員「全件表示」（ロールに関わらず）
+      viewScope = 'all';
       updateScopeBtn();
       toast(`👤 ${found.name} としてログインしました`, 'success');
       return;
@@ -311,7 +313,8 @@ function initUserSession() {
       if(found) {
         currentUser = found;
         updateUserUI();
-        viewScope = (found.role === 'マネージャー' || found.role === '管理者') ? 'all' : 'own';
+        // デフォルトは全員「全件表示」（ロールに関わらず）
+        viewScope = 'all';
         updateScopeBtn();
         return;
       }
@@ -365,8 +368,8 @@ function confirmUserSelect() {
   _storage.setItem(USER_SESSION_KEY, JSON.stringify(currentUser));
   document.getElementById('user-selector-overlay').classList.remove('open');
   updateUserUI();
-  // ロール判定
-  viewScope = (currentUser.role === 'マネージャー' || currentUser.role === '管理者') ? 'all' : 'own';
+  // デフォルトは全員「全件表示」（ロールに関わらず）
+  viewScope = 'all';
   updateScopeBtn();
   refreshAllViews();
   toast(`${currentUser.name} としてログインしました`, 'success');
