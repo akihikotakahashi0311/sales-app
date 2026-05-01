@@ -538,6 +538,15 @@ function buildCashflowData() {
 }
 
 function renderCashflow() {
+  // 基準月の月ラベル・ピッカーを同期（月次管理／入金管理と連動）
+  const cfLbl = document.getElementById('cf-month-label');
+  if(cfLbl) {
+    const [y, m] = currentMonth.split('-');
+    cfLbl.textContent = `${y}年${parseInt(m)}月`;
+  }
+  const cfPicker = document.getElementById('cf-month-picker-hidden');
+  if(cfPicker) cfPicker.value = currentMonth;
+
   const data = buildCashflowData();
   const { months, monthlyTotals, opps, oppForecasts } = data;
 

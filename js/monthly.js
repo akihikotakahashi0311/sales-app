@@ -278,9 +278,67 @@ let db = (() => {
   if(!Array.isArray(base.alerts))     base.alerts     = [];
   return base;
 })();
+// 共通の基準月（月次管理／入金管理／キャッシュフロー予測の3画面で共有）
+// デフォルト: 当月。setCurrentMonth() を介して変更すると、全画面が連動して再描画される
 let currentMonth = (()=>{ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); })();
 let reportMonth = currentMonth; // 分析レポートの参照月（currentMonth で初期化）
-let currentPaymentMonth = prevMonthKey(currentMonth); // 入金管理の基準月（デフォルト：先月）
+// 互換性のため currentPaymentMonth は残すが、currentMonth と同じ値を指すよう Object.defineProperty で同期
+// （古いコードからの参照を壊さないため。新規コードは currentMonth を使用すること）
+Object.defineProperty(window, 'currentPaymentMonth', {
+  get() { return currentMonth; },
+  set(v) { if(v) currentMonth = v; },
+  configurable: true,
+});
+
+// ============================================================
+// 共通: 基準月の変更 → 3画面（月次/入金/CF）連動再描画
+// ============================================================
+// 月次管理 / 入金管理 / キャッシュフロー予測 の3画面で月セレクタを操作したとき、
+// この関数を経由することで他画面の表示状態も同期される。
+// - currentMonth を更新
+// - 各画面の月ピッカー value / 月ラベルを同期
+// - 現在表示中のページを再描画
+function setCurrentMonth(ym) {
+  if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return;
+  if(ym === currentMonth) return; // 変化なし
+  currentMonth = ym;
+  syncMonthPickers();
+  // 現在表示中のページのみ再描画（refreshCurrentPage は core.js で定義）
+  if(typeof refreshCurrentPage === 'function') refreshCurrentPage();
+  else {
+    // 互換fallback: 個別に呼び出し
+    const page = document.querySelector('.nav-item.active')?.dataset?.page;
+    if(page === 'monthly')  renderMonthly?.();
+    if(page === 'payment')  renderPayment?.();
+    if(page === 'cashflow') renderCashflow?.();
+  }
+}
+
+// 3画面それぞれの月ピッカー・ラベルを currentMonth に同期させる
+function syncMonthPickers() {
+  const [y, m] = currentMonth.split('-');
+  const labelText = `${y}年${parseInt(m)}月`;
+
+  // 月次管理
+  const mLbl = document.getElementById('monthly-month-label');
+  if(mLbl) mLbl.textContent = labelText;
+  const mPickerHidden = document.getElementById('monthly-month-picker-hidden');
+  if(mPickerHidden) mPickerHidden.value = currentMonth;
+  const mPicker = document.getElementById('monthly-month-picker');
+  if(mPicker) mPicker.value = currentMonth;
+
+  // 入金管理
+  const pLbl = document.getElementById('payment-month-label');
+  if(pLbl) pLbl.textContent = labelText;
+  const pPickerHidden = document.getElementById('payment-month-picker-hidden');
+  if(pPickerHidden) pPickerHidden.value = currentMonth;
+
+  // キャッシュフロー予測
+  const cfLbl = document.getElementById('cf-month-label');
+  if(cfLbl) cfLbl.textContent = labelText;
+  const cfPickerHidden = document.getElementById('cf-month-picker-hidden');
+  if(cfPickerHidden) cfPickerHidden.value = currentMonth;
+}
 let charts = {};
 
 // ═══════════════════════════════════════════════════════════════

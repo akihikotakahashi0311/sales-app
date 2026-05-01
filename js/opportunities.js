@@ -124,31 +124,35 @@ function renderOpportunities() {
 // ============================================================
 // RENDER: MONTHLY
 // ============================================================
+// ※ 月切替は全画面共通の setCurrentMonth() を経由する（monthly.js で定義）
+//    これにより 月次管理 / 入金管理 / キャッシュフロー予測 の3画面が連動する
+
 function changeMonth(delta) {
-  if(delta < 0) currentMonth = prevMonthKey(currentMonth);
-  else currentMonth = nextMonthKey(currentMonth);
-  // ピッカーのvalueを同期
-  const picker = document.getElementById('monthly-month-picker');
-  if(picker) picker.value = currentMonth;
-  renderMonthly();
+  const next = delta < 0 ? prevMonthKey(currentMonth) : nextMonthKey(currentMonth);
+  setCurrentMonth(next);
 }
 
+// 月次管理の月ピッカー
+function changeMonthPicker(val) {
+  setCurrentMonth(val);
+}
 
-// 入金管理の月ナビ
+// 入金管理の月ナビ（月次と同じ currentMonth を更新）
 function changePaymentMonth(delta) {
-  if(delta < 0) currentPaymentMonth = prevMonthKey(currentPaymentMonth);
-  else currentPaymentMonth = nextMonthKey(currentPaymentMonth);
-  renderPayment();
+  const next = delta < 0 ? prevMonthKey(currentMonth) : nextMonthKey(currentMonth);
+  setCurrentMonth(next);
 }
 function changePaymentMonthPicker(val) {
-  if(!val) return;
-  currentPaymentMonth = val;
-  renderPayment();
+  setCurrentMonth(val);
 }
-function changeMonthPicker(val) {
-  if(!val) return;
-  currentMonth = val;
-  renderMonthly();
+
+// キャッシュフロー予測の月ナビ（同上）
+function changeCashflowMonth(delta) {
+  const next = delta < 0 ? prevMonthKey(currentMonth) : nextMonthKey(currentMonth);
+  setCurrentMonth(next);
+}
+function changeCashflowMonthPicker(val) {
+  setCurrentMonth(val);
 }
 
 
