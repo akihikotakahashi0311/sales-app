@@ -31,7 +31,7 @@ function onPopupBillingTypeChange() {
   if(type === 'monthly') {
     if(dateGroup) dateGroup.style.display = 'none';
     if(nextGroup) nextGroup.style.display = 'none';
-    if(dateHint)  dateHint.textContent = '月次請求のため、売上計上月の毎月末営業日（土日は前倒し）に自動設定されます';
+    if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
     // 月次売上計上のため契約終了日を必須表示
     if(endBadge) endBadge.style.display = '';
     if(optBadge) optBadge.style.display = 'none';
@@ -197,15 +197,15 @@ let paymentSortKey = 'month';
 let paymentSortDir = 1;  // 1=降順（新しい/大きい順）, -1=昇順
 
 function initPaymentMonthSel() {
-  // 月ラベルを更新（共通 currentMonth を参照）
+  // 月ラベルを更新
   const lbl = document.getElementById('payment-month-label');
   if(lbl) {
-    const [y, m] = currentMonth.split('-');
+    const [y, m] = currentPaymentMonth.split('-');
     lbl.textContent = `${y}年${parseInt(m)}月`;
   }
   // ピッカーの値を同期
   const picker = document.getElementById('payment-month-picker-hidden');
-  if(picker) picker.value = currentMonth;
+  if(picker) picker.value = currentPaymentMonth;
 }
 
 function sortPayment(key) {
@@ -224,79 +224,20 @@ function renderPayment() {
   const statusFilter = document.getElementById('payment-status-filter')?.value || '';
   const q           = (document.getElementById('payment-search')?.value || '').toLowerCase();
 
-  // ──────────────────────────────────────────────────────────
-  // 入金管理の基準日 = 「入金日（入金予定日）」
-  // currentMonth に「入金予定」がある明細のみを抽出する
-  // （請求月で絞るのではなく、入金予定月で絞ることで CF予測 と整合）
-  //
-  // 入金予定月の決定ロジック（優先順）:
-  //   1. db.monthly[請求月][oppId].paymentDate （手動設定）
-  //   2. calcPaymentDate(billingDate, billingSite) で自動算出
-  //      - billingSite > 0: 請求日 + サイト日数 が属する月の月末
-  //      - billingSite = 0: 請求日の翌月末
-  // ──────────────────────────────────────────────────────────
+  // 対象月リスト: currentPaymentMonth の単月表示
+  const months = [currentPaymentMonth];
 
-  const targetPaymentYm = currentMonth;
-
-  // ── デバッグ: ロード時の絞り込み内訳をコンソール出力 ──
-  // window._debugPayment = false; を実行すれば抑制可能
-  const _dbg = window._debugPayment !== false;
-  const _dbgRows = []; // 全候補レコードを格納
-
-  // 行データを生成: db.monthly の全月を走査し、入金予定月が targetPaymentYm のものを抽出
-  // ※ 入金管理は「受注済み」案件のみを対象とする（パイプライン中の案件は除外）
+  // 行データを生成
   const rows = [];
-  Object.keys(db.monthly).forEach(billingYm => {
-    const monthData = db.monthly[billingYm] || {};
+  months.forEach(ym => {
+    const monthData = db.monthly[ym] || {};
     db.opportunities.forEach(o => {
-      if(o.stage !== '受注') return; // 受注済みのみ
       if(!matchesScope(o)) return;
       const m = monthData[o.id] || {};
       const billing     = m.billing || 0;
       const cash        = m.cash    || 0;
       const sales       = m.sales   || 0;
       if(sales === 0 && billing === 0 && cash === 0) return;  // データなし行は除外
-
-      // ── 入金予定月を決定 ──
-      // 請求日（または請求予定日）の決定:
-      //   - 請求済（m.billingDate あり）: その日付
-      //   - 未請求 / 請求日未設定: 売上計上月（billingYm）の月末営業日を「請求予定日」として扱う
-      //     ※ 月末日が土日なら金曜に前倒し（calcPaymentDate と整合）
-      const billingDateForCalc = m.billingDate || (() => {
-        const [yy, mm] = billingYm.split('-').map(Number);
-        const last = new Date(yy, mm, 0);
-        const dow = last.getDay();
-        if(dow === 0)      last.setDate(last.getDate() - 2); // 日→金
-        else if(dow === 6) last.setDate(last.getDate() - 1); // 土→金
-        return last.toISOString().split('T')[0];
-      })();
-      // 入金予定日: 手動設定 > 自動計算
-      const site = o.billingSite || 0;
-      const paymentDate = m.paymentDate
-        || (typeof calcPaymentDate === 'function' ? calcPaymentDate(billingDateForCalc, site) : '');
-      const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
-
-      // デバッグ情報を記録
-      if(_dbg) {
-        _dbgRows.push({
-          customer: o.customer,
-          name: o.name,
-          billingYm,
-          billing, cash, sales,
-          'm.billingDate': m.billingDate,
-          'm.paymentDate': m.paymentDate,
-          billingDateForCalc,
-          'opp.billingSite': site,
-          paymentDate, paymentYm,
-          targetPaymentYm,
-          willShow: paymentYm === targetPaymentYm,
-        });
-      }
-
-      // 全明細（請求済・未請求とも）入金予定月で絞り込む
-      // - 請求済: 実際の入金予定月
-      // - 未請求: 売上計上月の月末営業日を請求予定日とみなして算出した入金予定月
-      if(paymentYm !== targetPaymentYm) return;
 
       // ステータス判定
       let status = 'none';
@@ -311,41 +252,25 @@ function renderPayment() {
 
       // 請求書PDFの保存日を請求日として取得
       const invFiles = getPdfFiles(o.id, 'invoice');
+      // ファイル名に年月が含まれるものを優先、なければ最新の保存日
       let billingDateFromInv = '';
       if(invFiles.length > 0) {
-        const ymKey = billingYm.replace('-','');  // '202510'
+        // ym（例: '2025-10'）に対応する請求書を探す
+        const ymKey = ym.replace('-','');  // '202510'
         const matched = invFiles.find(f => f.name && f.name.includes(ymKey));
         const target  = matched || invFiles[invFiles.length - 1];
         if(target?.date) billingDateFromInv = target.date.split('T')[0];
       }
       rows.push({
-        ym: billingYm, // 請求月（対象月列の表示に使用）
-        o, billing, cash, sales,
+        ym, o, billing, cash, sales,
         uncollected: billing - cash,
         status,
         billingDate: m.billingDate || billingDateFromInv,
-        paymentDate: paymentDate,
-        paymentYm,
+        paymentDate: m.paymentDate || '',
         memo:        m.paymentMemo || '',
       });
     });
   });
-
-  // ── デバッグログ: コンソールに絞り込みの内訳を出力 ──
-  // 抑制したい場合: ブラウザコンソールで window._debugPayment = false; を実行
-  if(_dbg) {
-    console.group(`[入金管理] 基準月=${targetPaymentYm} の絞り込み結果`);
-    console.log('全候補レコード数:', _dbgRows.length, '/ 表示件数:', _dbgRows.filter(r => r.willShow).length);
-    console.log('表示される明細:');
-    console.table(_dbgRows.filter(r => r.willShow));
-    const wrongMonth = _dbgRows.filter(r => r.willShow && r.paymentYm && r.paymentYm !== targetPaymentYm);
-    if(wrongMonth.length > 0) {
-      console.warn('⚠️ 入金予定月が一致しないのに表示されている明細:', wrongMonth);
-    }
-    console.log('全候補（フィルター前）:');
-    console.table(_dbgRows);
-    console.groupEnd();
-  }
 
   // ソート
   rows.sort((a, b) => {
@@ -375,11 +300,8 @@ function renderPayment() {
   `;
 
   // ステータスバッジ
-  // - unpaid（売上計上あり・請求未起票）→「請求予定」: その月にまだ請求書が出ていないが、入金予定月で表示している
-  // - billed（請求済・未入金）→「未入金」
-  // - partial（一部入金）/ done（入金済）
   const statusBadge = s => ({
-    unpaid:  '<span class="badge" style="background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;">請求予定</span>',
+    unpaid:  '<span class="badge badge-amber">未請求</span>',
     billed:  '<span class="badge badge-red">未入金</span>',
     partial: '<span class="badge badge-amber">一部入金</span>',
     done:    '<span class="badge badge-green">入金済</span>',
@@ -421,10 +343,7 @@ function renderPayment() {
     // 案件詳細行
     const detailRows = custRows.map(r => `
       <tr class="payment-group-row" data-group="${groupId}" style="${r.status==='done'?'opacity:0.6':''}background:var(--bg-primary);">
-        <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">
-          <div style="font-weight:600;">${r.paymentYm ? monthLabel(r.paymentYm) : '—'}</div>
-          <div style="font-size:10px;color:var(--text-muted);">請求:${monthLabel(r.ym)}</div>
-        </td>
+        <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">${monthLabel(r.ym)}</td>
         <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${r.o.owner||'—'}</td>
         <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${r.o.id}');return false;">${r.o.name}</a></td>
         <td style="padding:5px 8px;text-align:right;font-size:12px;">${fmt(r.billing)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.billing*1.1*10000)/10000)}</div></td>
