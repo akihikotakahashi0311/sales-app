@@ -258,10 +258,16 @@ function renderPayment() {
       if(sales === 0 && billing === 0 && cash === 0) return;  // データなし行は除外
 
       // ── 入金予定月を決定 ──
-      // 請求日: m.billingDate → 請求月の月末をフォールバック
+      // 請求日（または請求予定日）の決定:
+      //   - 請求済（m.billingDate あり）: その日付
+      //   - 未請求 / 請求日未設定: 売上計上月（billingYm）の月末営業日を「請求予定日」として扱う
+      //     ※ 月末日が土日なら金曜に前倒し（calcPaymentDate と整合）
       const billingDateForCalc = m.billingDate || (() => {
         const [yy, mm] = billingYm.split('-').map(Number);
         const last = new Date(yy, mm, 0);
+        const dow = last.getDay();
+        if(dow === 0)      last.setDate(last.getDate() - 2); // 日→金
+        else if(dow === 6) last.setDate(last.getDate() - 1); // 土→金
         return last.toISOString().split('T')[0];
       })();
       // 入金予定日: 手動設定 > 自動計算
@@ -283,21 +289,14 @@ function renderPayment() {
           'opp.billingSite': site,
           paymentDate, paymentYm,
           targetPaymentYm,
-          willShow: (() => {
-            if(billing === 0 && sales > 0) return billingYm === targetPaymentYm;
-            return paymentYm === targetPaymentYm;
-          })(),
+          willShow: paymentYm === targetPaymentYm,
         });
       }
 
-      // 入金予定月が当月と一致しない明細はスキップ
-      // ただし「未請求（billing=0 だが sales>0）」は請求がまだ立っていないため
-      // 入金予定月が決定できない → 売上月（billingYm）が当月の場合のみ表示
-      if(billing === 0 && sales > 0) {
-        if(billingYm !== targetPaymentYm) return;
-      } else {
-        if(paymentYm !== targetPaymentYm) return;
-      }
+      // 全明細（請求済・未請求とも）入金予定月で絞り込む
+      // - 請求済: 実際の入金予定月
+      // - 未請求: 売上計上月の月末営業日を請求予定日とみなして算出した入金予定月
+      if(paymentYm !== targetPaymentYm) return;
 
       // ステータス判定
       let status = 'none';
@@ -376,8 +375,11 @@ function renderPayment() {
   `;
 
   // ステータスバッジ
+  // - unpaid（売上計上あり・請求未起票）→「請求予定」: その月にまだ請求書が出ていないが、入金予定月で表示している
+  // - billed（請求済・未入金）→「未入金」
+  // - partial（一部入金）/ done（入金済）
   const statusBadge = s => ({
-    unpaid:  '<span class="badge badge-amber">未請求</span>',
+    unpaid:  '<span class="badge" style="background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;">請求予定</span>',
     billed:  '<span class="badge badge-red">未入金</span>',
     partial: '<span class="badge badge-amber">一部入金</span>',
     done:    '<span class="badge badge-green">入金済</span>',
