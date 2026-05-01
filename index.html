@@ -2006,13 +2006,13 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div id="master-users">
           <div class="card">
-            <div class="card-header"><span class="card-title">ユーザー一覧</span><button class="btn btn-primary" onclick="populateUserModal();openModal('user')">+ ユーザー追加</button></div>
+            <div class="card-header"><span class="card-title">ユーザー一覧</span><button class="btn btn-primary" id="btn-add-user" onclick="if(typeof requireAdmin==='function' && !requireAdmin('ユーザーの追加')) return; populateUserModal();openModal('user')">+ ユーザー追加</button></div>
             <div class="table-wrap"><table><thead><tr><th>名前</th><th>メール</th><th>ロール</th><th>部門</th><th>ステータス</th><th>操作</th></tr></thead><tbody id="users-tbody"></tbody></table></div>
           </div>
         </div>
         <div id="master-org" style="display:none;">
           <div class="card">
-            <div class="card-header"><span class="card-title">組織・部門</span><button class="btn btn-primary" onclick="populateOrgModal();openModal('org')">+ 部門追加</button></div>
+            <div class="card-header"><span class="card-title">組織・部門</span><button class="btn btn-primary" id="btn-add-org" onclick="if(typeof requireAdmin==='function' && !requireAdmin('組織の追加')) return; populateOrgModal();openModal('org')">+ 部門追加</button></div>
             <div class="table-wrap"><table><thead><tr><th>部門名</th><th>マネージャー</th><th>メンバー数</th><th>売上予算（万円）</th><th>操作</th></tr></thead><tbody id="org-tbody"></tbody></table></div>
           </div>
         </div>
