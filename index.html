@@ -2286,7 +2286,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <label class="form-label">請求タイプ</label>
           <select class="form-control" id="f-opp-billing-type" onchange="onBillingTypeChange()">
             <option value="">未設定</option>
-            <option value="monthly">月次請求（毎月末）</option>
+            <option value="monthly">月次請求（毎月末営業日）</option>
             <option value="lump">一括請求</option>
             <option value="milestone">マイルストーン請求</option>
           </select>
@@ -2579,7 +2579,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <label class="form-label required">請求タイプ</label>
           <select class="form-control" id="popup-billing-type" onchange="onPopupBillingTypeChange()">
             <option value="">選択してください</option>
-            <option value="monthly">月次請求（毎月末）</option>
+            <option value="monthly">月次請求（毎月末営業日）</option>
             <option value="lump">一括請求</option>
             <option value="milestone">マイルストーン請求</option>
           </select>
