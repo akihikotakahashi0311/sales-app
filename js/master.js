@@ -9,6 +9,8 @@ function renderMonthly() {
   }
   const picker = document.getElementById('monthly-month-picker-hidden');
   if(picker) picker.value = currentMonth;
+  // ステータスフィルタのバッジ・ラベルを最新化
+  if(typeof updateStageBadge === 'function') updateStageBadge();
   const cpEl = document.getElementById('current-period'); if(cpEl) cpEl.textContent = label;
   const locked = isMonthLocked();
   const lockBadge = document.getElementById('lock-badge');
@@ -89,6 +91,13 @@ function renderMonthly() {
     if(mcf && o.customer !== mcf) return false;
     // 計上方式フィルター
     if(mrf && o.recog !== mrf) return false;
+    // ステータス（フェーズ）フィルター: selectedStages に含まれる stage のみ表示
+    // ※ selectedStages が未定義の場合は受注のみ（フォールバック）
+    if(typeof selectedStages !== 'undefined') {
+      if(!selectedStages.has(o.stage)) return false;
+    } else {
+      if(o.stage !== '受注') return false;
+    }
     // スコープフィルター（自分の案件のみ/全件）
     if(!matchesScope(o)) return false;
     // 担当者フィルター: null または空Set = 全員表示、要素あり = 絞り込み

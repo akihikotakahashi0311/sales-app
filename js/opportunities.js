@@ -263,3 +263,113 @@ function updateOwnerBadge() {
   }
 }
 
+
+// ============================================================
+// 月次管理 ステータス（フェーズ）チェックボックスフィルター
+// ============================================================
+// selectedStages = Set([...]) → そのセットの stage のみ表示
+// デフォルト：「受注」のみ
+// 全フェーズ：受注 / リード / 提案中 / 見積提出 / 交渉中 / 失注
+const ALL_STAGES = ['受注', 'リード', '提案中', '見積提出', '交渉中', '失注'];
+let selectedStages = new Set(['受注']); // デフォルト：受注のみ
+
+function _getStageList() {
+  const fromData = [...new Set(db.opportunities.map(o => o.stage).filter(Boolean))];
+  const merged = [...new Set([...ALL_STAGES, ...fromData])];
+  // ALL_STAGES の順を優先
+  return merged.sort((a, b) => {
+    const ia = ALL_STAGES.indexOf(a);
+    const ib = ALL_STAGES.indexOf(b);
+    if(ia >= 0 && ib >= 0) return ia - ib;
+    if(ia >= 0) return -1;
+    if(ib >= 0) return 1;
+    return a.localeCompare(b, 'ja');
+  });
+}
+
+function toggleStageFilter(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('monthly-stage-filter-dropdown');
+  if(!dd) return;
+  dd.classList.toggle('open');
+  if(dd.classList.contains('open')) buildStageList();
+}
+
+// ドロップダウン外クリックで閉じる
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('monthly-stage-filter-wrap');
+  if(wrap && !wrap.contains(e.target)) {
+    document.getElementById('monthly-stage-filter-dropdown')?.classList.remove('open');
+  }
+});
+
+function buildStageList() {
+  const stages = _getStageList();
+  const listEl = document.getElementById('monthly-stage-list');
+  if(!listEl) return;
+  // フェーズごとの色（バッジ風表示）
+  const stageColor = {
+    '受注':    { bg: '#d1fae5', fg: '#065f46', border: '#86efac' },
+    'リード':  { bg: '#f3f4f6', fg: '#4b5563', border: '#d1d5db' },
+    '提案中':  { bg: '#dbeafe', fg: '#1e40af', border: '#93c5fd' },
+    '見積提出':{ bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' },
+    '交渉中':  { bg: '#ede9fe', fg: '#5b21b6', border: '#c4b5fd' },
+    '失注':    { bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
+  };
+  listEl.innerHTML = stages.map(stage => {
+    const checked = selectedStages.has(stage);
+    const c = stageColor[stage] || { bg: '#f3f4f6', fg: '#4b5563', border: '#d1d5db' };
+    return `<label class="owner-filter-item">
+      <input type="checkbox" ${checked ? 'checked' : ''}
+        onchange="onStageCheck(this, '${stage.replace(/'/g, "\\'")}')">
+      <span class="badge" style="background:${c.bg};color:${c.fg};border:1px solid ${c.border};font-size:11px;padding:2px 8px;">${stage}</span>
+    </label>`;
+  }).join('');
+}
+
+function onStageCheck(el, stage) {
+  if(el.checked) selectedStages.add(stage);
+  else selectedStages.delete(stage);
+  updateStageBadge();
+  renderMonthly();
+}
+
+function selectAllStages() {
+  selectedStages = new Set(_getStageList());
+  buildStageList();
+  updateStageBadge();
+  renderMonthly();
+}
+
+function clearStages() {
+  selectedStages = new Set();
+  buildStageList();
+  updateStageBadge();
+  renderMonthly();
+}
+
+function updateStageBadge() {
+  const badge = document.getElementById('monthly-stage-badge');
+  const label = document.getElementById('monthly-stage-filter-label');
+  if(!badge || !label) return;
+  const allStages = _getStageList();
+  if(selectedStages.size === 0) {
+    badge.style.display = '';
+    badge.textContent = '0';
+    badge.style.background = '#888';
+    label.textContent = 'ステータス';
+  } else if(selectedStages.size === allStages.length) {
+    badge.style.display = 'none';
+    label.textContent = 'ステータス（全て）';
+  } else if(selectedStages.size === 1 && selectedStages.has('受注')) {
+    // デフォルト状態
+    badge.style.display = 'none';
+    label.textContent = '受注のみ';
+  } else {
+    badge.style.display = '';
+    badge.textContent = selectedStages.size;
+    badge.style.background = 'var(--accent)';
+    const names = [...selectedStages];
+    label.textContent = names.length === 1 ? names[0] : 'ステータス';
+  }
+}
