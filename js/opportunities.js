@@ -116,6 +116,7 @@ function renderOpportunities() {
       <td style="font-size:12px;">${
         _canEditOwner
           ? `<select class="owner-inline-select" onchange="changeOppOwner('${o.id}', this.value)" onclick="event.stopPropagation()" style="font-size:12px;height:28px;padding:2px 6px;border:1px solid var(--border-medium);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);max-width:110px;cursor:pointer;">
+              <option value=""${!o.owner?' selected':''}>—</option>
               ${_activeUsers.map(u => `<option value="${u.name}"${u.name===o.owner?' selected':''}>${u.name}</option>`).join('')}
               ${o.owner && !_activeUsers.some(u=>u.name===o.owner) ? `<option value="${o.owner}" selected>${o.owner}</option>` : ''}
             </select>`
@@ -149,6 +150,7 @@ function changeOppOwner(oppId, newOwner) {
   // 部門も担当者の所属に合わせて更新（dept列のフィルター整合性のため）
   const userInfo = (db.users || []).find(u => u.name === newOwner);
   opp.owner = newOwner;
+  // 担当者がクリアされた場合はdeptもクリアしない（既存値を維持）
   if(userInfo && userInfo.dept) opp.dept = userInfo.dept;
   opp.lastUpdated = new Date().toISOString().split('T')[0];
 
@@ -162,7 +164,9 @@ function changeOppOwner(oppId, newOwner) {
   });
 
   save();
-  toast(`担当者を「${oldOwner||'未設定'}」→「${newOwner}」に変更しました`, 'success');
+  const _fromLbl = oldOwner || '未設定';
+  const _toLbl   = newOwner || '未設定';
+  toast(`担当者を「${_fromLbl}」→「${_toLbl}」に変更しました`, 'success');
   renderOpportunities();
   renderDashboard();
 }
