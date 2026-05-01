@@ -92,6 +92,9 @@ function renderOpportunities() {
   document.getElementById('opp-bulk-bar')?.classList.remove('show');
   const opSel = document.getElementById('opp-select-all');
   if(opSel){ opSel.checked = false; opSel.indeterminate = false; }
+  // 担当者インライン編集の権限チェック（管理者・マネージャーのみ可）
+  const _canEditOwner = currentUser && (currentUser.role === '管理者' || currentUser.role === 'マネージャー');
+  const _activeUsers  = (db.users || []).filter(u => u.active);
   document.getElementById('opp-tbody').innerHTML = filtered.length ? filtered.map(o=>`
     <tr id="opp-row-${o.id}">
       <td class="chk-col"><input type="checkbox" class="row-chk" data-id="${o.id}" onchange="onOppChk(this,'${o.id}')"></td>
@@ -110,7 +113,14 @@ function renderOpportunities() {
       <td>${recogBadge(o.recog)}</td>
       <td style="font-size:12px;">${o.start||'—'}</td>
       <td style="font-size:12px;">${o.end||'—'}</td>
-      <td style="font-size:12px;">${o.owner}</td>
+      <td style="font-size:12px;">${
+        _canEditOwner
+          ? `<select class="owner-inline-select" onchange="changeOppOwner('${o.id}', this.value)" onclick="event.stopPropagation()" style="font-size:12px;height:28px;padding:2px 6px;border:1px solid var(--border-medium);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);max-width:110px;cursor:pointer;">
+              ${_activeUsers.map(u => `<option value="${u.name}"${u.name===o.owner?' selected':''}>${u.name}</option>`).join('')}
+              ${o.owner && !_activeUsers.some(u=>u.name===o.owner) ? `<option value="${o.owner}" selected>${o.owner}</option>` : ''}
+            </select>`
+          : (o.owner || '—')
+      }</td>
       <td>${(()=>{const na=o.nextAction;if(!na?.date&&!na?.action)return '<span style="color:var(--text-muted);font-size:11px;">—</span>';const tod=new Date().toISOString().split('T')[0];const ov=na.date&&na.date<=tod;const pc={urgent:'#E24B4A',high:'#BA7517',normal:'#185FA5'}[na.priority||'normal'];return '<div style="font-size:11px;"><div style="font-weight:600;color:'+(ov?'#E24B4A':pc)+';"'+'>'+(na.date||'—')+(ov?' ⚠':'')+'</div><div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">'+(na.action||'')+'</div></div>';})()}</td>
       <td>
         <div style="display:flex;gap:4px;">
@@ -119,6 +129,42 @@ function renderOpportunities() {
         </div>
       </td>
     </tr>`).join('') : '<tr><td colspan="14"><div class="empty-state"><p>案件がありません</p></div></td></tr>';
+}
+
+// ============================================================
+// 担当者インライン変更（管理者・マネージャーのみ）
+// ============================================================
+function changeOppOwner(oppId, newOwner) {
+  // 権限チェック（UIで制御済みだが二重防御）
+  if(!currentUser || (currentUser.role !== '管理者' && currentUser.role !== 'マネージャー')) {
+    toast('担当者を変更する権限がありません', 'error');
+    renderOpportunities();
+    return;
+  }
+  const opp = db.opportunities.find(o => o.id === oppId);
+  if(!opp) { toast('案件が見つかりません', 'error'); return; }
+  const oldOwner = opp.owner || '';
+  if(oldOwner === newOwner) return; // 変更なし
+
+  // 部門も担当者の所属に合わせて更新（dept列のフィルター整合性のため）
+  const userInfo = (db.users || []).find(u => u.name === newOwner);
+  opp.owner = newOwner;
+  if(userInfo && userInfo.dept) opp.dept = userInfo.dept;
+  opp.lastUpdated = new Date().toISOString().split('T')[0];
+
+  // 変更履歴に追記（任意・既存の履歴フィールドがあれば追加）
+  if(!Array.isArray(opp.ownerHistory)) opp.ownerHistory = [];
+  opp.ownerHistory.push({
+    date: new Date().toISOString().split('T')[0],
+    from: oldOwner,
+    to: newOwner,
+    changedBy: currentUser.name,
+  });
+
+  save();
+  toast(`担当者を「${oldOwner||'未設定'}」→「${newOwner}」に変更しました`, 'success');
+  renderOpportunities();
+  renderDashboard();
 }
 
 // ============================================================
