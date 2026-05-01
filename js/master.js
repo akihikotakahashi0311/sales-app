@@ -56,8 +56,6 @@ function renderMonthly() {
   const refMonth = currentMonth;
 
   let monthlyOpps = db.opportunities.filter(o => {
-    // 失注案件は表示しない
-    if(o.stage === '失注') return false;
     // テキスト検索
     if(mq && !o.id.toLowerCase().includes(mq) && !o.name.toLowerCase().includes(mq) &&
        !o.customer.toLowerCase().includes(mq) && !(o.dept||'').toLowerCase().includes(mq)) return false;
@@ -140,7 +138,7 @@ function renderMonthly() {
     }
     return `<tr style="${_rowBg}">
       <td style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">${o.id}</td>
-      <td style="font-size:12px;"><a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a></td>
+      <td style="font-size:12px;"><a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a>${teamsIconHtml(o)}</td>
       <td>${recogBadge(o.recog)}</td>
       <td class="text-right"><input class="cell-input" type="text" value="${m.sales}" ${dis}
         onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${o.id}','sales',v)})"
@@ -211,12 +209,9 @@ function updateMonthlyCell(oppId, field, value) {
   // PoC詳細テーブルを即時更新
   const pocTbody = document.getElementById('poc-tbody');
   if(pocTbody) renderPocTable();
-  // Update totals live（失注案件は除外: 月次トランザクション表示と整合）
+  // Update totals live
   let ts=0,tb=0,tc=0;
-  db.opportunities.forEach(o => {
-    if(o.stage === '失注') return;
-    const md = getMonthly(o.id); ts+=md.sales; tb+=md.billing; tc+=md.cash;
-  });
+  db.opportunities.forEach(o => { const md = getMonthly(o.id); ts+=md.sales; tb+=md.billing; tc+=md.cash; });
   document.getElementById('m-total-sales').textContent = fmt(ts);
   document.getElementById('m-total-billing').textContent = fmt(tb);
   document.getElementById('m-total-cash').textContent = fmt(tc);
@@ -236,8 +231,6 @@ function renderPocTable() {
   const pocLocked = isMonthLocked();
   const pocRows = db.opportunities.filter(o => {
     if(o.recog !== '進行基準') return false;
-    // 失注案件は表示しない
-    if(o.stage === '失注') return false;
     if(_mq && !o.name.toLowerCase().includes(_mq) && !o.customer.toLowerCase().includes(_mq)) return false;
     if(_mdf && o.dept !== _mdf) return false;
     if(_mcf && o.customer !== _mcf) return false;

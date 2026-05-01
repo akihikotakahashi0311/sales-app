@@ -33,22 +33,6 @@ function getPdfFiles(oppId, type) {
   return [];
 }
 
-// ============================================================
-// 請求書PDF発行有無の判定（月キー一致）
-// ============================================================
-// 指定された案件・対象月（YYYY-MM）について、ファイル名に
-// その月のキー（YYYYMM）を含む請求書PDFが1件以上保存されているかを判定する。
-// 月次管理・入金管理の「未請求 / 請求済」ステータス判定で共通利用する。
-// 既存の pdf.js renderPayment 内で使われている検索規約（ymKey = ym.replace('-','')）
-// と同じロジックを採用している。
-function hasInvoicePdfForMonth(oppId, ym) {
-  if(!oppId || !ym) return false;
-  const files = getPdfFiles(oppId, 'invoice');
-  if(!files || files.length === 0) return false;
-  const ymKey = ym.replace('-', '');  // 例: '2025-10' → '202510'
-  return files.some(f => f && f.name && f.name.includes(ymKey));
-}
-
 // ファイル一覧を保存する
 // ============================================================
 // 見積書PDF自動生成
@@ -1670,6 +1654,97 @@ const STAGE_PROB = {
   '失注':      0,
 };
 
+// ============================================================
+// Teamsチャネル URL ユーティリティ
+// ============================================================
+
+// Teams URL を保存前にサニタイズ（trim + 不正な値は空文字に）
+function sanitizeTeamsUrl(raw) {
+  if(!raw) return '';
+  const s = String(raw).trim();
+  if(!s) return '';
+  // http(s) で始まる URL 形式のみ受理。それ以外は空にする
+  try {
+    const u = new URL(s);
+    if(u.protocol === 'http:' || u.protocol === 'https:') return s;
+  } catch(e) { /* 無効な URL */ }
+  return '';
+}
+
+// Teams URL かどうかの簡易判定（ホスト名で判定）
+function isTeamsUrl(url) {
+  if(!url) return false;
+  try {
+    const u = new URL(url);
+    return /(^|\.)teams\.microsoft\.com$/i.test(u.hostname)
+        || /(^|\.)teams\.live\.com$/i.test(u.hostname);
+  } catch(e) { return false; }
+}
+
+// 入力欄のリアルタイム検証（OK/NG をヒント表示）
+function validateTeamsUrl(el) {
+  if(!el) return;
+  const hint = document.getElementById('f-opp-teams-url-hint');
+  const v = (el.value || '').trim();
+  if(!v) {
+    el.style.borderColor = '';
+    if(hint) {
+      hint.style.color = 'var(--text-muted)';
+      hint.textContent = 'Teamsで「チャネルへのリンクを取得」したURLを貼り付けてください（任意）';
+    }
+    return;
+  }
+  let ok = false, isTeams = false;
+  try {
+    const u = new URL(v);
+    ok = (u.protocol === 'http:' || u.protocol === 'https:');
+    isTeams = isTeamsUrl(v);
+  } catch(e) { ok = false; }
+  if(!ok) {
+    el.style.borderColor = 'var(--red, #dc2626)';
+    if(hint) {
+      hint.style.color = 'var(--red, #dc2626)';
+      hint.textContent = '⚠ 有効な URL 形式ではありません（https:// で始まる URL を入力してください）';
+    }
+  } else if(!isTeams) {
+    el.style.borderColor = 'var(--amber, #d97706)';
+    if(hint) {
+      hint.style.color = 'var(--amber, #d97706)';
+      hint.textContent = '※ teams.microsoft.com 以外のURLですが保存できます';
+    }
+  } else {
+    el.style.borderColor = 'var(--green, #1e7e34)';
+    if(hint) {
+      hint.style.color = 'var(--green, #1e7e34)';
+      hint.textContent = '✓ Teamsチャネル URL を認識しました';
+    }
+  }
+}
+
+// 一覧画面用：Teams リンクアイコン HTML を返す（URL がある場合のみ）
+// 別ウィンドウで開く（target="_blank" + rel="noopener"）
+function teamsIconHtml(opp) {
+  if(!opp || !opp.teamsUrl) return '';
+  // URL を HTML 属性として安全にエスケープ
+  const safeUrl = String(opp.teamsUrl)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeName = String(opp.name || '案件')
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return ''
+    + '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer"'
+    + ' onclick="event.stopPropagation();" '
+    + ' title="Teamsチャネルを開く: ' + safeName + '"'
+    + ' style="display:inline-flex;align-items:center;justify-content:center;'
+    + 'width:18px;height:18px;margin-left:4px;border-radius:3px;'
+    + 'background:rgba(80,89,201,0.10);text-decoration:none;vertical-align:middle;">'
+    + '<svg viewBox="0 0 24 24" width="12" height="12" fill="#5059C9">'
+    + '<path d="M20.625 8.127h-4.5V6.252a2.625 2.625 0 1 1 5.25 0v.75a1.125 1.125 0 0 1-.75 1.125zM13.5 9.252v9.75a3 3 0 0 1-3 3h-7.5a3 3 0 0 1-3-3v-9.75a1.125 1.125 0 0 1 1.125-1.125h11.25a1.125 1.125 0 0 1 1.125 1.125zm10.5 0v6.75a3 3 0 0 1-3 3h-3.75a3.74 3.74 0 0 0 .75-2.25V8.127h4.875A1.125 1.125 0 0 1 24 9.252zM10.687 5.252a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/>'
+    + '</svg>'
+    + '</a>';
+}
+
 function onStageChange() {
   const stage   = document.getElementById('f-opp-stage').value;
   const probEl  = document.getElementById('f-opp-prob');
@@ -2402,6 +2477,8 @@ function saveOpportunity() {
     nextBillingDate: document.getElementById('f-opp-next-billing-date')?.value || '',
     paymentDue:      document.getElementById('f-opp-payment-due')?.value || '',
     billingMemo:     document.getElementById('f-opp-billing-memo')?.value.trim() || '',
+    // Teamsチャネル URL（任意・空欄可）
+    teamsUrl:        sanitizeTeamsUrl(document.getElementById('f-opp-teams-url')?.value || ''),
     stageHistory,
     nextAction: (nextDate || nextAction) ? { date: nextDate, action: nextAction, priority: nextPriority } : null,
     lastUpdated: new Date().toISOString().split('T')[0],

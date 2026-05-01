@@ -620,19 +620,7 @@ function resetLeadModal() {
     if(el) el.value = el.tagName === 'SELECT' ? el.options[0]?.value || '' : '';
   });
 }
-function closeModal(id) {
-  const modal = document.getElementById('modal-' + id);
-  if(!modal) return;
-  modal.classList.remove('open');
-  // 必須フィールドのエラースタイルをリセット
-  modal.querySelectorAll('.form-control').forEach(el => {
-    el.style.borderColor = '';
-    el.style.boxShadow   = '';
-  });
-  modal.querySelectorAll('[id$="-error"]').forEach(el => {
-    el.textContent = '';
-  });
-}
+function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
 
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if(e.target === el) el.classList.remove('open'); });
@@ -706,6 +694,12 @@ function populateOppModal(opp=null) {
   if(_nb) _nb.value = opp?.nextBillingDate  || '';
   if(_pd) _pd.value = opp?.paymentDue       || '';
   if(_bm) _bm.value = opp?.billingMemo      || '';
+  // Teamsチャネル URL
+  const _tu = document.getElementById('f-opp-teams-url');
+  if(_tu) {
+    _tu.value = opp?.teamsUrl || '';
+    if(typeof validateTeamsUrl === 'function') validateTeamsUrl(_tu);
+  }
   // 請求タイプに応じてUIを更新
   onBillingTypeChange();
 }
