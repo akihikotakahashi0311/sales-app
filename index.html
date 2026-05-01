@@ -1668,9 +1668,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
               </label>
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
                 表示対象
-                <select class="form-control" id="cf-status-filter" style="width:140px;height:32px;font-size:12px;" onchange="renderCashflow()">
+                <select class="form-control" id="cf-status-filter" style="width:200px;height:32px;font-size:12px;" onchange="renderCashflow()">
                   <option value="">受注済のみ</option>
-                  <option value="pipeline">パイプライン含む（加重）</option>
+                  <option value="prob80">確度80%以上(売上の100%)</option>
+                  <option value="pipeline">パイプライン含む(加重)</option>
                 </select>
               </label>
               <button class="btn btn-sm" onclick="exportCashflowCSV()">
