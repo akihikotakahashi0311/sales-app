@@ -2235,17 +2235,17 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div class="form-group">
           <label class="form-label required">契約総額（万円）</label>
-          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0">
+          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0" onchange="onScheduleParamChange()">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">契約開始（予定日）</label>
-          <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onOppStartChange()">
+          <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onScheduleParamChange()">
         </div>
         <div class="form-group">
           <label class="form-label">契約終了（予定日）</label>
-          <input class="form-control" id="f-opp-end" type="date" style="height:34px;font-size:13px;">
+          <input class="form-control" id="f-opp-end" type="date" style="height:34px;font-size:13px;" onchange="onScheduleParamChange()">
         </div>
       </div>
 
