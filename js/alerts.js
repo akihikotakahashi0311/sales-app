@@ -35,11 +35,12 @@ function renderMaster() {
 function switchMasterTab(el, tabId) {
   el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  ['master-users','master-org','master-customers','master-phases','master-backup'].forEach(id=>{
+  ['master-users','master-org','master-customers','master-phases','master-backup','master-security'].forEach(id=>{
     const d=document.getElementById(id);
     if(d) d.style.display=id===tabId?'block':'none';
   });
   if(tabId === 'master-backup') renderBackupHistory();
+  if(tabId === 'master-security') renderEncryptionStatus();
 }
 
 // ============================================================

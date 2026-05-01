@@ -405,7 +405,7 @@ function updateUserUI() {
   if(avatarEl)  avatarEl.textContent  = currentUser.name ? currentUser.name.slice(0,1) : '?';
   if(nameEl)    nameEl.textContent    = currentUser.name || '未選択';
   if(sidebarEl) sidebarEl.textContent = currentUser.name || '未選択';
-  // 月次確定ボタン・バックアップタブ: 管理者ロール または 管理部のみ表示
+  // 月次確定ボタン・バックアップタブ・セキュリティタブ: 管理者ロール または 管理部のみ表示
   const canAdmin = currentUser.role === '管理者' || currentUser.dept === '管理部';
   const lockBtn = document.getElementById('btn-monthly-lock');
   if(lockBtn) lockBtn.style.display = canAdmin ? '' : 'none';
@@ -414,7 +414,15 @@ function updateUserUI() {
     backupTab.style.display = canAdmin ? '' : 'none';
     // バックアップタブが表示中なのに権限なし → 別タブへ切り替え
     if(!canAdmin && backupTab.classList.contains('active')) {
-      const firstTab = document.querySelector('#page-master .tab:not(#tab-master-backup)');
+      const firstTab = document.querySelector('#page-master .tab:not(#tab-master-backup):not(#tab-master-security)');
+      if(firstTab) firstTab.click();
+    }
+  }
+  const securityTab = document.getElementById('tab-master-security');
+  if(securityTab) {
+    securityTab.style.display = canAdmin ? '' : 'none';
+    if(!canAdmin && securityTab.classList.contains('active')) {
+      const firstTab = document.querySelector('#page-master .tab:not(#tab-master-backup):not(#tab-master-security)');
       if(firstTab) firstTab.click();
     }
   }

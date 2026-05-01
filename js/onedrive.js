@@ -183,11 +183,40 @@ async function loadFromOneDrive() {
       return true;
     }
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const remoteDb = await res.json();
+
+    // ★ 暗号化対応: バイト列で受け取り、ヘッダで判定
+    const buffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let remoteDb;
+
+    if(typeof isEncryptedBytes === 'function' && isEncryptedBytes(bytes)) {
+      // 暗号化済み → 復号（パスフレーズ未設定時はプロンプト）
+      try {
+        remoteDb = await decryptJson(bytes);
+      } catch(decErr) {
+        if(decErr.message === 'DECRYPT_FAILED') {
+          toast('⚠️ パスフレーズが正しくありません。再ログインして正しいパスフレーズを入力してください', 'error');
+          return false;
+        }
+        throw decErr;
+      }
+    } else {
+      // 暗号化されていない（旧形式） → 平文JSONとして読み込み
+      // 互換性のため、起動時に自動で暗号化保存に切り替える
+      console.warn('[OneDrive] 平文JSONを検出。次回保存時に暗号化されます');
+      remoteDb = JSON.parse(new TextDecoder().decode(bytes));
+      // 暗号化への移行を促す通知
+      setTimeout(() => {
+        toast('🔐 平文データを検出しました。次回保存時に自動的に暗号化されます', 'info');
+      }, 500);
+    }
+
     // 常にOneDriveのデータを正として読み込む
     db = remoteDb;
     delete db._savedAt;
     if(!db.pdfFiles) db.pdfFiles = {};
+    if(!db.pdfRefs) db.pdfRefs = {};
+    if(!db.pdfDeletionQueue) db.pdfDeletionQueue = [];
     // 先にユーザーを確定させてから描画（描画がcurrentUserを参照するため）
     initUserSession();
     // 現在表示中のページを再描画（全ページ共通）
@@ -195,6 +224,17 @@ async function loadFromOneDrive() {
     // ユーザー選択の表示/非表示を更新
     _updateUserSelectorVisibility();
     toast('✅ OneDriveからデータを読み込みました', 'success');
+    // バックグラウンドでPDF分離マイグレーション + 削除キュー処理（失敗してもUI影響なし）
+    setTimeout(() => {
+      try {
+        if(typeof migratePdfFilesToSharePoint === 'function') {
+          migratePdfFilesToSharePoint(20).catch(e => console.warn('[PDF migration]', e.message));
+        }
+        if(typeof processPdfDeletionQueue === 'function') {
+          processPdfDeletionQueue().catch(e => console.warn('[PDF GC]', e.message));
+        }
+      } catch(e) { console.warn('[PDF post-load]', e.message); }
+    }, 3000);
     return true;
   } catch(e) {
     console.error('[OneDrive] 読み込みエラー:', e.message, e);
@@ -209,22 +249,42 @@ async function loadFromOneDrive() {
   }
 }
 
-// OneDriveにデータを保存
+// OneDriveにデータを保存（暗号化）
 async function saveToOneDrive() {
   if(!_odSyncEnabled) return false;
   try {
     _graphToken = await _getGraphToken();
     const now = new Date().toISOString();
-    const payload = JSON.stringify({ ...db, _savedAt: now });
+    const dataToEncrypt = { ...db, _savedAt: now };
+
+    // ★ 暗号化: AES-GCM-256（パスフレーズ未設定時はプロンプト）
+    let body, contentType;
+    if(typeof encryptJson === 'function') {
+      try {
+        const encrypted = await encryptJson(dataToEncrypt);
+        body = encrypted;
+        contentType = 'application/octet-stream';
+      } catch(encErr) {
+        console.warn('[OneDrive] 暗号化失敗、平文保存にフォールバック:', encErr.message);
+        // 暗号化に失敗した場合はユーザーに警告（パスフレーズ未入力等）
+        toast('⚠️ パスフレーズが設定されていないため保存を中止しました', 'error');
+        return false;
+      }
+    } else {
+      // crypto.js が読み込まれていない（fallback）
+      body = JSON.stringify(dataToEncrypt);
+      contentType = 'application/json';
+    }
+
     const res = await fetch(
       `${getGraphEndpoint()}/content`,
       {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${_graphToken}`,
-          'Content-Type': 'application/json',
+          'Content-Type': contentType,
         },
-        body: payload,
+        body,
       }
     );
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -232,7 +292,7 @@ async function saveToOneDrive() {
     return true;
   } catch(e) {
     console.warn('[OneDrive] 保存エラー:', e.message);
-    toast('⚠️ OneDrive保存に失敗しました（ローカルには保存済み）', 'error');
+    toast('⚠️ OneDrive保存に失敗しました。再試行してください', 'error');
     return false;
   }
 }
