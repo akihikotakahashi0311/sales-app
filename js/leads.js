@@ -370,7 +370,7 @@ function saveQuoteToOpp() {
   <div class="meta-right" style="position:relative;">
     <div class="company-name">${ci.name}</div>
     ${daihyoBlockHtml}
-    ${ci.zip} ${ci.addr1}<br>
+    ${isDaihyo ? `${ci.zip}<br>${ci.addr1}` : `${ci.zip} ${ci.addr1}`}<br>
     ${ci.addr2}<br>
     TEL: ${salesTel || ci.tel}<br>
     E-Mail: ${salesEmail || ci.email}<br>
@@ -814,18 +814,16 @@ function _buildInvoiceHtml() {
   // ※ どちらか一方のみが必ず押印され、両方押印されることは無い
   // ============================================================
   const isDaihyo = (sealType === 'daihyo');
-  // 代表取締役名 + 代表印 / または 登録番号のみ — 必ずどちらか
+  // 代表取締役名 + 代表印 — 代表印選択時のみ
+  // ※ 登録番号はE-Mailの下（自社情報末尾）に移動 — 見積書と同じレイアウト
   const daihyoBlockHtml = isDaihyo
     ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
-      + '<div style="font-size:9pt;color:#333;padding-right:20px;">'
-        + '代表取締役　高橋精彦<br>'
-        + '<span style="font-weight:normal;">登録番号　' + ci.regNo + '</span>'
-      + '</div>'
+      + '<div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div>'
       + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
         + buildDaihyoSealImg(55)
       + '</span>'
     + '</div>'
-    : '登録番号　' + ci.regNo + '<br>';
+    : '';
   // 会社印（角印） — 会社印選択時のみ
   // 注意: ここはテンプレートリテラルではなく文字列連結で組み立てる（${...}を含むため）
   const companySealHtml = isDaihyo
@@ -928,7 +926,8 @@ function _buildInvoiceHtml() {
     新橋駅前ビル1号館805<br>
     TEL：${ci.tel}<br>
     担当：　${owner}<br>
-    E-Mail：<a href="mailto:${ownerEmail}" style="color:#1a50a0;">${ownerEmail}</a>
+    E-Mail：<a href="mailto:${ownerEmail}" style="color:#1a50a0;">${ownerEmail}</a><br>
+    登録番号：${ci.regNo}
     ${companySealHtml}
   </div>
 </div>
