@@ -1668,9 +1668,8 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
               </label>
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
                 表示対象
-                <select class="form-control" id="cf-status-filter" style="width:180px;height:32px;font-size:12px;" onchange="renderCashflow()">
+                <select class="form-control" id="cf-status-filter" style="width:140px;height:32px;font-size:12px;" onchange="renderCashflow()">
                   <option value="">受注済のみ</option>
-                  <option value="prob80">確度80%以上（100%計上）</option>
                   <option value="pipeline">パイプライン含む（加重）</option>
                 </select>
               </label>
@@ -2181,6 +2180,21 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             <thead id="schedule-thead" style="background:var(--bg-secondary);position:sticky;top:0;"></thead>
             <tbody id="schedule-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:10px;">
+        <label class="form-label">
+          <span style="display:inline-flex;align-items:center;gap:4px;">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="#5059C9" style="vertical-align:middle;"><path d="M20.625 8.127h-4.5V6.252a2.625 2.625 0 1 1 5.25 0v.75a1.125 1.125 0 0 1-.75 1.125zM13.5 9.252v9.75a3 3 0 0 1-3 3h-7.5a3 3 0 0 1-3-3v-9.75a1.125 1.125 0 0 1 1.125-1.125h11.25a1.125 1.125 0 0 1 1.125 1.125zm10.5 0v6.75a3 3 0 0 1-3 3h-3.75a3.74 3.74 0 0 0 .75-2.25V8.127h4.875A1.125 1.125 0 0 1 24 9.252zM10.687 5.252a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/></svg>
+            Teamsチャネル URL
+          </span>
+        </label>
+        <input class="form-control" id="f-opp-teams-url" type="url"
+          placeholder="https://teams.microsoft.com/l/channel/..."
+          oninput="validateTeamsUrl(this)">
+        <div id="f-opp-teams-url-hint" style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+          Teamsで「チャネルへのリンクを取得」したURLを貼り付けてください（任意）
         </div>
       </div>
 
