@@ -238,6 +238,11 @@ function renderPayment() {
 
   const targetPaymentYm = currentMonth;
 
+  // ── デバッグ: ロード時の絞り込み内訳をコンソール出力 ──
+  // window._debugPayment = false; を実行すれば抑制可能
+  const _dbg = window._debugPayment !== false;
+  const _dbgRows = []; // 全候補レコードを格納
+
   // 行データを生成: db.monthly の全月を走査し、入金予定月が targetPaymentYm のものを抽出
   // ※ 入金管理は「受注済み」案件のみを対象とする（パイプライン中の案件は除外）
   const rows = [];
@@ -264,6 +269,26 @@ function renderPayment() {
       const paymentDate = m.paymentDate
         || (typeof calcPaymentDate === 'function' ? calcPaymentDate(billingDateForCalc, site) : '');
       const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+
+      // デバッグ情報を記録
+      if(_dbg) {
+        _dbgRows.push({
+          customer: o.customer,
+          name: o.name,
+          billingYm,
+          billing, cash, sales,
+          'm.billingDate': m.billingDate,
+          'm.paymentDate': m.paymentDate,
+          billingDateForCalc,
+          'opp.billingSite': site,
+          paymentDate, paymentYm,
+          targetPaymentYm,
+          willShow: (() => {
+            if(billing === 0 && sales > 0) return billingYm === targetPaymentYm;
+            return paymentYm === targetPaymentYm;
+          })(),
+        });
+      }
 
       // 入金予定月が当月と一致しない明細はスキップ
       // ただし「未請求（billing=0 だが sales>0）」は請求がまだ立っていないため
@@ -306,6 +331,22 @@ function renderPayment() {
       });
     });
   });
+
+  // ── デバッグログ: コンソールに絞り込みの内訳を出力 ──
+  // 抑制したい場合: ブラウザコンソールで window._debugPayment = false; を実行
+  if(_dbg) {
+    console.group(`[入金管理] 基準月=${targetPaymentYm} の絞り込み結果`);
+    console.log('全候補レコード数:', _dbgRows.length, '/ 表示件数:', _dbgRows.filter(r => r.willShow).length);
+    console.log('表示される明細:');
+    console.table(_dbgRows.filter(r => r.willShow));
+    const wrongMonth = _dbgRows.filter(r => r.willShow && r.paymentYm && r.paymentYm !== targetPaymentYm);
+    if(wrongMonth.length > 0) {
+      console.warn('⚠️ 入金予定月が一致しないのに表示されている明細:', wrongMonth);
+    }
+    console.log('全候補（フィルター前）:');
+    console.table(_dbgRows);
+    console.groupEnd();
+  }
 
   // ソート
   rows.sort((a, b) => {
@@ -378,7 +419,10 @@ function renderPayment() {
     // 案件詳細行
     const detailRows = custRows.map(r => `
       <tr class="payment-group-row" data-group="${groupId}" style="${r.status==='done'?'opacity:0.6':''}background:var(--bg-primary);">
-        <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">${monthLabel(r.ym)}</td>
+        <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">
+          <div style="font-weight:600;">${r.paymentYm ? monthLabel(r.paymentYm) : '—'}</div>
+          <div style="font-size:10px;color:var(--text-muted);">請求:${monthLabel(r.ym)}</div>
+        </td>
         <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${r.o.owner||'—'}</td>
         <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${r.o.id}');return false;">${r.o.name}</a></td>
         <td style="padding:5px 8px;text-align:right;font-size:12px;">${fmt(r.billing)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.billing*1.1*10000)/10000)}</div></td>
