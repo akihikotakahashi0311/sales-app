@@ -2056,16 +2056,20 @@ function renderScheduleSection() {
           style="cursor:pointer;${isPast ? 'border-color:var(--border-medium);' : ''}"></td>
       </tr>`);
     } else {
-      // 進行基準: 売上表示・進捗率入力・累計進捗%
+      // 進行基準: 売上入力・進捗率入力・累計進捗%
+      // 売上金額をクリックしても入力でき、％入力との両方が可能（金額→％ / ％→金額）
       rows.push(`<tr style="${rowStyle}">
         <td style="white-space:nowrap;font-size:12px;">${lbl}${timeMark}</td>
-        <td class="text-right" id="sched-${key}-sales-display"
-          style="font-size:12px;color:var(--text-secondary);">${sd.sales > 0 ? '¥'+sd.sales.toLocaleString()+'万' : '—'}</td>
+        <td><input class="schedule-cell poc" type="text"
+          value="${sd.sales > 0 ? sd.sales : ''}" readonly
+          id="sched-${key}-sales"
+          onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>onScheduleCellChange('${key}','sales',v)})"
+          style="cursor:pointer;text-align:right;${isPast ? 'border-color:var(--border-medium);' : ''}"></td>
         <td><input class="schedule-cell poc" type="text"
           value="${sd.progress > 0 ? sd.progress.toFixed(1) : ''}" readonly
           id="sched-${key}-progress"
           onclick="openCalcFor(this,{unit:'%',max:100,step:0.1,onConfirm:v=>onScheduleCellChange('${key}','progress',v)})"
-          style="cursor:pointer;"></td>
+          style="cursor:pointer;text-align:right;"></td>
         <td class="text-right" style="font-size:11px;color:var(--text-muted);"
           id="sched-${key}-cum">${sd.cumProgress > 0 ? sd.cumProgress.toFixed(1)+'%' : '—'}</td>
       </tr>`);
@@ -2202,19 +2206,22 @@ function recalcPocByAmount(startKey, amount) {
     const sd = scheduleData[key] || {sales:0};
     const salesAmt = Math.max(0, parseFloat(sd.sales) || 0);
     cumSales += salesAmt;
-    const cumProg = amount > 0 ? Math.min(100, (cumSales / amount) * 100) : 0;
+    const cumProg  = amount > 0 ? Math.min(100, (cumSales / amount) * 100) : 0;
+    const thisProg = amount > 0 ? (salesAmt / amount) * 100 : 0;
     scheduleData[key] = {
       ...sd,
       sales:       salesAmt,
       cumSales:    cumSales,
-      progress:    amount > 0 ? (salesAmt / amount) * 100 : 0,
+      progress:    thisProg,
       cumProgress: cumProg,
     };
-    // DOM 更新
+    // DOM 更新（売上 input・進捗 input・累計表示）
     const cumEl = document.getElementById(`sched-${key}-cum`);
     if(cumEl) cumEl.textContent = cumProg > 0 ? cumProg.toFixed(1)+'%' : '—';
-    const salesDispEl = document.getElementById(`sched-${key}-sales-display`);
-    if(salesDispEl) salesDispEl.textContent = salesAmt > 0 ? `¥${salesAmt.toLocaleString()}万` : '—';
+    const salesInp = document.getElementById(`sched-${key}-sales`);
+    if(salesInp) salesInp.value = salesAmt > 0 ? salesAmt : '';
+    const progInp = document.getElementById(`sched-${key}-progress`);
+    if(progInp) progInp.value = thisProg > 0 ? thisProg.toFixed(1) : '';
   }
   updateScheduleTotal(false, true, amount);
 }
@@ -2247,9 +2254,9 @@ function recalcPocScheduleRange(startKey, months, amount) {
     const cum = Math.min(100, prevCum + thisProg);
     const salesAmt = Math.round(amount * (cum - prevCum) / 100);
     scheduleData[key] = { ...sd, sales: Math.max(0, salesAmt), cumProgress: cum };
-    // DOM更新
-    const salesEl = document.getElementById(`sched-${key}-sales-display`);
-    if(salesEl) salesEl.textContent = salesAmt > 0 ? `¥${salesAmt.toLocaleString()}万` : '—';
+    // DOM更新（売上 input・累計表示）
+    const salesInp = document.getElementById(`sched-${key}-sales`);
+    if(salesInp) salesInp.value = salesAmt > 0 ? salesAmt : '';
     const cumEl = document.getElementById(`sched-${key}-cum`);
     if(cumEl) cumEl.textContent = cum > 0 ? cum.toFixed(1)+'%' : '—';
     prevCum = cum;
