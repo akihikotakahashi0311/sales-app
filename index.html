@@ -2002,6 +2002,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <div class="tab" onclick="switchMasterTab(this,'master-customers')">顧客マスタ</div>
           <div class="tab" onclick="switchMasterTab(this,'master-phases')">フェーズ設定</div>
           <div class="tab" id="tab-master-backup" onclick="switchMasterTab(this,'master-backup')" style="display:none;">💾 バックアップ</div>
+          <div class="tab" id="tab-master-security" onclick="switchMasterTab(this,'master-security')" style="display:none;">🔐 セキュリティ</div>
         </div>
         <div id="master-users">
           <div class="card">
@@ -2106,6 +2107,63 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                 データ変更時に自動的に最大5世代のバックアップを保持します。
               </p>
               <div id="backup-history-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- セキュリティ -->
+        <div id="master-security" style="display:none;">
+          <!-- 暗号化状態 -->
+          <div class="card" style="margin-bottom:18px;">
+            <div class="card-header">
+              <span class="card-title">🔐 データ暗号化</span>
+            </div>
+            <div style="padding:20px 24px;">
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7;">
+                OneDrive上の <code>sales_data.json</code> は <strong>AES-GCM-256</strong> で暗号化されています。<br>
+                ファイルを直接ダウンロードしても、正しいパスフレーズなしでは内容を読めません。
+              </p>
+              <div id="encryption-status" style="padding:12px;background:var(--bg-secondary);border-radius:6px;font-size:12px;margin-bottom:16px;"></div>
+            </div>
+          </div>
+
+          <!-- パスフレーズ管理 -->
+          <div class="card" style="margin-bottom:18px;">
+            <div class="card-header">
+              <span class="card-title">🔑 パスフレーズ管理</span>
+            </div>
+            <div style="padding:20px 24px;">
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7;">
+                パスフレーズはこのブラウザのみに保管されます。他のメンバーには別途共有してください。<br>
+                <strong style="color:var(--red);">パスフレーズを忘れるとデータを復号できません。</strong>必ず安全な場所に控えてください。
+              </p>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="changeEncryptionPassphrase()">
+                  🔄 パスフレーズを変更
+                </button>
+                <button class="btn" onclick="showCurrentPassphraseInfo()">
+                  ℹ️ 現在の状態を確認
+                </button>
+                <button class="btn btn-danger" onclick="clearStoredPassphrase()">
+                  🗑️ このブラウザから削除
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 注意事項 -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">⚠️ 注意事項</span>
+            </div>
+            <div style="padding:20px 24px;">
+              <ul style="font-size:13px;color:var(--text-secondary);line-height:1.8;padding-left:20px;">
+                <li>パスフレーズは <strong>8文字以上</strong> で設定してください（推奨16文字以上）</li>
+                <li>パスフレーズの変更後は、他のメンバー全員に新パスフレーズを安全な手段で共有してください</li>
+                <li>共有手段としてパスワードマネージャー、対面、暗号化メールが推奨です。Teams/Slackの平文送信は避けてください</li>
+                <li>パスフレーズを忘れた場合、暗号化されたデータの復旧は不可能です</li>
+                <li>退職者が出た場合は、パスフレーズの変更を推奨します</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -2545,6 +2603,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
 
 
 <!-- JavaScript モジュール（順序重要） -->
+<script src="js/crypto.js"></script>
 <script src="js/onedrive.js"></script>
 <script src="js/core.js"></script>
 <script src="js/pdf.js"></script>
