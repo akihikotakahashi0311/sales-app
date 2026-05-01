@@ -275,10 +275,12 @@ function _buildQuoteHtml() {
   // ============================================================
   const isDaihyo = (sealType === 'daihyo');
   // 代表取締役名 + 代表印 — 代表印選択時のみ
+  // 修正: display:inline-block → block にして後続テキストが独立行に来るように
+  // また、外側を block にすることで右端基準が安定し印鑑位置のズレを防止
   const daihyoBlockHtml = isDaihyo
-    ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
-      + '<div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div>'
-      + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+    ? '<div style="position:relative;display:block;margin:4px 0;height:24px;">'
+      + '<span style="font-size:9pt;color:#333;">代表取締役　高橋精彦</span>'
+      + '<span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);line-height:0;">'
       + buildDaihyoSealImg(55)
       + '</span>'
       + '</div>'
@@ -845,10 +847,11 @@ function _buildInvoiceHtml() {
   const isDaihyo = (sealType === 'daihyo');
   // 代表取締役名 + 代表印 — 代表印選択時のみ
   // ※ 登録番号はE-Mailの下（自社情報末尾）に移動 — 見積書と同じレイアウト
+  // 修正: display:inline-block → block にして郵便番号位置を整える
   const daihyoBlockHtml = isDaihyo
-    ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
-      + '<div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div>'
-      + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+    ? '<div style="position:relative;display:block;margin:4px 0;height:24px;">'
+      + '<span style="font-size:9pt;color:#333;">代表取締役　高橋精彦</span>'
+      + '<span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);line-height:0;">'
         + buildDaihyoSealImg(55)
       + '</span>'
     + '</div>'
@@ -1290,10 +1293,11 @@ function _buildDeliveryHtml() {
     ? ''
     : '<span style="position:absolute;right:-2px;top:-14px;line-height:0;">' + buildCompanySealImg(50) + '</span>';
   // 代表取締役名 + 代表印 — 代表印選択時のみ
+  // 修正: display:inline-block → block にして郵便番号位置を整える
   const daihyoBlockHtml = isDaihyo
-    ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
-      + '<div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div>'
-      + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+    ? '<div style="position:relative;display:block;margin:4px 0;height:24px;">'
+      + '<span style="font-size:9pt;color:#333;">代表取締役　高橋精彦</span>'
+      + '<span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);line-height:0;">'
       + buildDaihyoSealImg(55)
       + '</span>'
       + '</div>'
