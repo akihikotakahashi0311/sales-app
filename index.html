@@ -1668,8 +1668,9 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
               </label>
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
                 表示対象
-                <select class="form-control" id="cf-status-filter" style="width:140px;height:32px;font-size:12px;" onchange="renderCashflow()">
+                <select class="form-control" id="cf-status-filter" style="width:180px;height:32px;font-size:12px;" onchange="renderCashflow()">
                   <option value="">受注済のみ</option>
+                  <option value="prob80">確度80%以上（100%計上）</option>
                   <option value="pipeline">パイプライン含む（加重）</option>
                 </select>
               </label>
@@ -2150,7 +2151,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label required">契約開始（予定日）</label>
+          <label class="form-label">契約開始（予定日）</label>
           <input class="form-control" id="f-opp-start" type="date" style="height:34px;font-size:13px;" onchange="onOppStartChange()">
         </div>
         <div class="form-group">
@@ -2162,7 +2163,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <!-- 月次売上スケジュール（月額按分・進行基準のみ） -->
       <div id="monthly-schedule-section" style="display:none;margin-top:4px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-          <span id="schedule-section-title" style="font-size:12px;font-weight:600;color:var(--text-secondary);">月次売上スケジュール</span><span id="schedule-required-badge" style="color:var(--red);font-size:12px;"> *</span>
+          <span id="schedule-section-title" style="font-size:12px;font-weight:600;color:var(--text-secondary);">月次売上スケジュール</span>
           <select class="form-control" id="sched-range-sel" style="width:160px;height:28px;font-size:11px;" onchange="renderScheduleSection()">
             <option value="contract">契約期間</option>
             <option value="future">将来24ヶ月</option>
@@ -2256,7 +2257,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label required">請求タイプ</label>
+          <label class="form-label">請求タイプ</label>
           <select class="form-control" id="f-opp-billing-type" onchange="onBillingTypeChange()">
             <option value="">未設定</option>
             <option value="monthly">月次請求（毎月末）</option>
@@ -2271,7 +2272,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       </div>
       <div class="form-row" id="f-opp-billing-date-row">
         <div class="form-group" id="f-opp-billing-date-group">
-          <label class="form-label required" id="f-opp-billing-date-label">請求予定日</label>
+          <label class="form-label" id="f-opp-billing-date-label">請求予定日</label>
           <input class="form-control" type="date" id="f-opp-billing-date" oninput="calcPaymentDueDate()">
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="f-opp-billing-date-hint"></div>
         </div>
