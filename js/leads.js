@@ -988,6 +988,7 @@ function _buildInvoiceHtml() {
     <div class="bank-row">口座名義　：　株式会社４ＤＩＮ</div>
     <div class="bank-row">三菱UFJ銀行　赤坂見附支店（064）普通預金　0950098</div>
     <div class="bank-row">みずほ銀行　　麹町支店（021）　　普通預金　3035886</div>
+    <div class="bank-row">りそな銀行　　新橋支店（268）　　普通預金　2039494</div>
     <div style="margin-top:6px;"><span style="font-weight:700;">お振込期限日</span></div>
     <div>${due}</div>
   </div>
