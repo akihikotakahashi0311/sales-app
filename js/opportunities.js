@@ -92,8 +92,8 @@ function renderOpportunities() {
   document.getElementById('opp-bulk-bar')?.classList.remove('show');
   const opSel = document.getElementById('opp-select-all');
   if(opSel){ opSel.checked = false; opSel.indeterminate = false; }
-  // 担当者インライン編集の権限チェック（管理者・マネージャーのみ可）
-  const _canEditOwner = currentUser && (currentUser.role === '管理者' || currentUser.role === 'マネージャー');
+  // 担当者インライン編集の権限チェック（システム管理者・マネージャーのみ可）
+  const _canEditOwner = currentUser && (currentUser.role === 'システム管理者' || currentUser.role === 'マネージャー');
   const _activeUsers  = (db.users || []).filter(u => u.active);
   document.getElementById('opp-tbody').innerHTML = filtered.length ? filtered.map(o=>`
     <tr id="opp-row-${o.id}">
@@ -132,11 +132,11 @@ function renderOpportunities() {
 }
 
 // ============================================================
-// 担当者インライン変更（管理者・マネージャーのみ）
+// 担当者インライン変更（システム管理者・マネージャーのみ）
 // ============================================================
 function changeOppOwner(oppId, newOwner) {
   // 権限チェック（UIで制御済みだが二重防御）
-  if(!currentUser || (currentUser.role !== '管理者' && currentUser.role !== 'マネージャー')) {
+  if(!currentUser || (currentUser.role !== 'システム管理者' && currentUser.role !== 'マネージャー')) {
     toast('担当者を変更する権限がありません', 'error');
     renderOpportunities();
     return;
