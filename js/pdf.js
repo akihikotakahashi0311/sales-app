@@ -240,8 +240,12 @@ function renderPayment() {
       if(sales === 0 && billing === 0 && cash === 0) return;  // データなし行は除外
 
       // ステータス判定
+      // ※ 請求額（billing）が記載されていても、当月キー（YYYYMM）を含む
+      //   請求書PDFが未保存の場合は「未請求」として扱う
+      const _invoiced = hasInvoicePdfForMonth(o.id, ym);
       let status = 'none';
       if(billing === 0 && sales > 0) status = 'unpaid';
+      else if(billing > 0 && !_invoiced) status = 'unpaid';   // 請求書PDF未発行 → 未請求
       else if(billing > 0 && cash === 0) status = 'billed';
       else if(billing > 0 && cash > 0 && cash < billing) status = 'partial';
       else if(billing > 0 && cash >= billing) status = 'done';

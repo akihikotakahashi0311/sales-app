@@ -33,6 +33,22 @@ function getPdfFiles(oppId, type) {
   return [];
 }
 
+// ============================================================
+// 請求書PDF発行有無の判定（月キー一致）
+// ============================================================
+// 指定された案件・対象月（YYYY-MM）について、ファイル名に
+// その月のキー（YYYYMM）を含む請求書PDFが1件以上保存されているかを判定する。
+// 月次管理・入金管理の「未請求 / 請求済」ステータス判定で共通利用する。
+// 既存の pdf.js renderPayment 内で使われている検索規約（ymKey = ym.replace('-','')）
+// と同じロジックを採用している。
+function hasInvoicePdfForMonth(oppId, ym) {
+  if(!oppId || !ym) return false;
+  const files = getPdfFiles(oppId, 'invoice');
+  if(!files || files.length === 0) return false;
+  const ymKey = ym.replace('-', '');  // 例: '2025-10' → '202510'
+  return files.some(f => f && f.name && f.name.includes(ymKey));
+}
+
 // ファイル一覧を保存する
 // ============================================================
 // 見積書PDF自動生成
@@ -2253,32 +2269,17 @@ function autoSetBillingFromOpp(opp, force=false) {
 
       // 月次売上スケジュールの sales を請求額として設定
       const salesAmt = m.sales || 0;
-      const hasSales = salesAmt > 0;
+      // sales が 0 の月は請求額を設定しない（monthly は全月走査するが未入力月はスキップ）
+      if(salesAmt <= 0 && !force) return;
 
-      // 売上予定のない月はスキップ（force でも請求予定日はセットしない）
-      // ただし monthly で force=true の場合、契約期間中の売上0の月は請求額を 0 にクリアする
-      if(!hasSales) {
-        if(opp.billingType === 'monthly' && force) {
-          m.billing = 0;
-        }
-        return;
-      }
-
-      // 各月の月末営業日を請求予定日として算出（土日は前の金曜日に前倒し）
-      // ※ toISOString() は UTC 変換で日付がずれるため、ローカル日付文字列を直接組み立てる
+      // 各月の月末日を請求予定日として算出
       const [y, mo] = ym.split('-').map(Number);
-      const lastDay = new Date(y, mo, 0); // mo月の末日（1-12 のまま渡すと翌月0日 = 当月末）
-      const dow = lastDay.getDay();
-      if(dow === 0)      lastDay.setDate(lastDay.getDate() - 2); // 日曜→金曜
-      else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1); // 土曜→金曜
-      const billingDate =
-        lastDay.getFullYear() + '-' +
-        String(lastDay.getMonth() + 1).padStart(2, '0') + '-' +
-        String(lastDay.getDate()).padStart(2, '0');
+      const lastDay = new Date(y, mo, 0);
+      const billingDate = lastDay.toISOString().split('T')[0];
 
       // 請求額
       if(force || !(m.billing > 0)) {
-        m.billing = salesAmt;
+        m.billing = salesAmt > 0 ? salesAmt : 0;
       }
       // 請求予定日
       if(force || !m.billingDate) {
@@ -2341,13 +2342,14 @@ function saveOpportunity() {
   const _billingType = document.getElementById('f-opp-billing-type')?.value || '';
   if(!_billingType) errors.push('・請求タイプ');
 
-  // 請求予定日（一括・マイルストーンは必須、月次請求は任意）
+  // 請求予定日（一括・マイルストーンは請求予定日必須、月次請求は次回請求予定日 or 請求予定日のどちらか）
   const _billingDate     = document.getElementById('f-opp-billing-date')?.value || '';
   const _nextBillingDate = document.getElementById('f-opp-next-billing-date')?.value || '';
-  if(_billingType === 'lump' || _billingType === 'milestone') {
+  if(_billingType === 'monthly') {
+    if(!_billingDate && !_nextBillingDate) errors.push('・請求予定日（月次請求の場合は請求予定日を入力してください）');
+  } else if(_billingType === 'lump' || _billingType === 'milestone') {
     if(!_billingDate) errors.push('・請求予定日');
   }
-  // 月次請求は請求予定日を必須としない（毎月末に自動設定されるため）
 
   if(errors.length > 0) {
     toast('以下の必須項目を入力してください\n' + errors.join('\n'), 'error');

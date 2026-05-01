@@ -102,8 +102,19 @@ function renderMonthly() {
         case 'uncollected': va=ma.billing-ma.cash; vb=mb.billing-mb.cash; break;
         case 'updatedBy':   va=ma.updatedBy||''; vb=mb.updatedBy||''; break;
         case 'status': {
-          const statusRank = m => m.sales>0&&m.billing===0?0 : m.billing>0&&m.cash===0?1 : m.billing>0&&m.cash>0&&m.cash<m.billing?2 : m.cash>=m.billing&&m.cash>0?3 : 4;
-          va=statusRank(ma); vb=statusRank(mb); break;
+          // 状態ランク（小さいほど先頭側）
+          // 0: 未請求 / 未着手, 1: 未入金, 2: 一部入金, 3: 入金済
+          // 表示ロジックと同じく、請求書PDF未発行なら billing > 0 でも「未請求」扱い
+          const statusRank = (m, oppId) => {
+            const invoiced = hasInvoicePdfForMonth(oppId, currentMonth);
+            if(m.billing > 0 && !invoiced) return 0; // 未請求（PDF未発行）
+            if(m.sales > 0 && m.billing === 0) return 0; // 未請求（請求額未入力）
+            if(m.billing > 0 && m.cash === 0) return 1; // 未入金
+            if(m.billing > 0 && m.cash > 0 && m.cash < m.billing) return 2; // 一部入金
+            if(m.cash >= m.billing && m.cash > 0) return 3; // 入金済
+            return 4; // 未着手
+          };
+          va = statusRank(ma, a.id); vb = statusRank(mb, b.id); break;
         }
         case 'owner': va=a.owner||''; vb=b.owner||''; break;
         case 'nextDate': va=a.nextAction?.date||'9999'; vb=b.nextAction?.date||'9999'; break;
@@ -118,12 +129,27 @@ function renderMonthly() {
     const m = getMonthly(o.id);
     totalSales += m.sales; totalBilling += m.billing; totalCash += m.cash;
     const uncollected = m.billing - m.cash;
+    // 当月の請求書PDFが発行・保存されているか
+    // ※ 請求額（m.billing）が記載されていても、当月キー（YYYYMM）を含む
+    //   請求書PDFが未保存の場合は「未請求」として扱う
+    const _invoiced = hasInvoicePdfForMonth(o.id, currentMonth);
     let statusBadge = '';
-    if(m.sales > 0 && m.billing === 0) statusBadge = '<span class="badge badge-amber">未請求</span>';
-    else if(m.billing > 0 && m.cash === 0) statusBadge = '<span class="badge badge-red">未入金</span>';
-    else if(m.cash > 0 && m.cash >= m.billing) statusBadge = '<span class="badge badge-green">入金済</span>';
-    else if(m.billing > 0) statusBadge = '<span class="badge badge-amber">一部入金</span>';
-    else statusBadge = '<span class="badge badge-gray">未着手</span>';
+    if(m.billing > 0 && !_invoiced) {
+      // 請求額入力済みだが請求書PDF未発行 → 未請求
+      statusBadge = '<span class="badge badge-amber">未請求</span>';
+    } else if(m.sales > 0 && m.billing === 0) {
+      // 売上計上済みだが請求額未入力 → 未請求
+      statusBadge = '<span class="badge badge-amber">未請求</span>';
+    } else if(m.billing > 0 && m.cash === 0) {
+      // 請求書発行済み・入金なし → 未入金
+      statusBadge = '<span class="badge badge-red">未入金</span>';
+    } else if(m.cash > 0 && m.cash >= m.billing) {
+      statusBadge = '<span class="badge badge-green">入金済</span>';
+    } else if(m.billing > 0) {
+      statusBadge = '<span class="badge badge-amber">一部入金</span>';
+    } else {
+      statusBadge = '<span class="badge badge-gray">未着手</span>';
+    }
     const isPoc = o.recog === '進行基準';
     const dis = locked ? 'disabled' : '';
     // 契約終了日との残日数でハイライト色を決定
