@@ -1527,6 +1527,26 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                   <div id="monthly-owner-list"></div>
                 </div>
               </div>
+              <!-- ステータス（フェーズ）チェックボックスフィルター -->
+              <div class="owner-filter-wrap" id="monthly-stage-filter-wrap">
+                <button class="owner-filter-btn" id="monthly-stage-filter-btn"
+                  onclick="toggleStageFilter(event)">
+                  <span id="monthly-stage-filter-label">受注のみ</span>
+                  <span id="monthly-stage-badge" style="display:none;" class="badge-count"></span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    style="width:12px;height:12px;flex-shrink:0;">
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                </button>
+                <div class="owner-filter-dropdown" id="monthly-stage-filter-dropdown">
+                  <div class="owner-filter-actions">
+                    <button type="button" onclick="selectAllStages();event.stopPropagation()">全選択</button>
+                    <button type="button" onclick="clearStages();event.stopPropagation()">全解除</button>
+                  </div>
+                  <hr class="owner-filter-divider">
+                  <div id="monthly-stage-list"></div>
+                </div>
+              </div>
               <select class="form-control" style="width:120px;height:34px;font-size:12px;" id="monthly-recog-filter" onchange="renderMonthly()">
                 <option value="">全計上方式</option>
                 <option>進行基準</option><option>一括計上</option><option>月額按分</option>
