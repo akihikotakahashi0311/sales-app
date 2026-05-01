@@ -880,8 +880,17 @@ function _buildInvoiceHtml() {
   <div class="top-right" style="position:relative;">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="4DIN" style="height:36px;width:auto;margin-bottom:3px;display:block;">' : ''}
     <div class="cname">${ci.name}</div>
-    ${sealType === 'daihyo' ? '<div style="position:relative;display:inline-block;margin:4px 0;"><div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div><span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'+buildDaihyoSealImg(55)+'</span></div>' : ''}
-    登録番号　${ci.regNo}<br>
+    ${sealType === 'daihyo'
+      ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
+        + '<div style="font-size:9pt;color:#333;padding-right:20px;">'
+          + '代表取締役　高橋精彦<br>'
+          + '<span style="font-weight:normal;">登録番号　' + ci.regNo + '</span>'
+        + '</div>'
+        + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+          + buildDaihyoSealImg(55)
+        + '</span>'
+      + '</div>'
+      : '登録番号　' + ci.regNo + '<br>'}
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
     新橋駅前ビル1号館805<br>
@@ -1743,6 +1752,127 @@ function teamsIconHtml(opp) {
     + '<path d="M20.625 8.127h-4.5V6.252a2.625 2.625 0 1 1 5.25 0v.75a1.125 1.125 0 0 1-.75 1.125zM13.5 9.252v9.75a3 3 0 0 1-3 3h-7.5a3 3 0 0 1-3-3v-9.75a1.125 1.125 0 0 1 1.125-1.125h11.25a1.125 1.125 0 0 1 1.125 1.125zm10.5 0v6.75a3 3 0 0 1-3 3h-3.75a3.74 3.74 0 0 0 .75-2.25V8.127h4.875A1.125 1.125 0 0 1 24 9.252zM10.687 5.252a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/>'
     + '</svg>'
     + '</a>';
+}
+
+// ============================================================
+// 一覧画面での担当者変更（権限制御つき）
+// ============================================================
+
+// 担当者を一覧から変更できる権限を持つかどうか
+// システム管理者 / 管理者 / マネージャー のみ true
+function canChangeOwner() {
+  if(!currentUser) return false;
+  const r = currentUser.role || '';
+  return r === '管理者' || r === 'システム管理者' || r === 'マネージャー';
+}
+
+// 案件管理画面の担当者セル HTML を生成
+// 権限があれば <select> でインライン編集可能、なければプレーンテキスト
+function ownerCellHtml(opp) {
+  const ownerName = String(opp.owner || '').trim();
+  // HTML属性用エスケープ
+  const escapeHtml = s => String(s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeOwner = escapeHtml(ownerName);
+
+  // 権限なし: 担当者がいれば名前、なければ「—」
+  if(!canChangeOwner()) {
+    if(!ownerName) {
+      return '<span style="font-size:12px;color:var(--text-muted);">—</span>';
+    }
+    return '<span style="font-size:12px;">' + safeOwner + '</span>';
+  }
+
+  // ── 権限あり: ドロップダウンを表示 ──
+  // アクティブな全ユーザーを選択肢に。現在の担当者がアクティブで無くても残す
+  const activeUsers = (db.users || []).filter(u => u.active !== false);
+  const names = activeUsers.map(u => u.name);
+  if(ownerName && !names.includes(ownerName)) names.push(ownerName);
+
+  // 先頭に「未割当（—）」を入れる
+  // - 担当者が未登録の案件は、これがデフォルトで selected になる
+  // - 担当者がいる案件は、その名前が selected になり、ここで「—」を選び直して未割当に戻すこともできる
+  const placeholderSelected = ownerName ? '' : ' selected';
+  const placeholderOption =
+    '<option value=""' + placeholderSelected + ' style="color:var(--text-muted);">—</option>';
+
+  const options = names.map(n => {
+    const safe = escapeHtml(n);
+    const sel = (n === ownerName) ? ' selected' : '';
+    return '<option value="' + safe + '"' + sel + '>' + safe + '</option>';
+  }).join('');
+
+  // 担当者未登録の場合は文字色をミュートしておく（ユーザーに「未割当」を視覚的に伝える）
+  const styleColor = ownerName ? '' : 'color:var(--text-muted);';
+
+  // event.stopPropagation で行クリックなどへの伝播を防止
+  return ''
+    + '<select class="opp-owner-inline" '
+    +   'onchange="changeOppOwner(\'' + opp.id + '\', this.value, this)" '
+    +   'onclick="event.stopPropagation();" '
+    +   'title="担当者を変更（保存は自動）" '
+    +   'style="font-size:12px;padding:2px 4px;border:1px solid var(--border-light, #d4d4d2);'
+    +   'border-radius:4px;background:transparent;cursor:pointer;max-width:120px;' + styleColor + '">'
+    + placeholderOption
+    + options
+    + '</select>';
+}
+
+// 担当者をインライン変更
+function changeOppOwner(oppId, newOwner, selectEl) {
+  // 権限再チェック（防御的に）
+  if(!canChangeOwner()) {
+    toast('担当者の変更権限がありません', 'error');
+    if(selectEl) {
+      const opp = db.opportunities.find(o => o.id === oppId);
+      if(opp) selectEl.value = opp.owner || '';
+    }
+    return;
+  }
+
+  const opp = db.opportunities.find(o => o.id === oppId);
+  if(!opp) {
+    toast('案件が見つかりません', 'error');
+    return;
+  }
+
+  const prevOwner = String(opp.owner || '').trim();
+  const trimmed = String(newOwner || '').trim();
+  if(trimmed === prevOwner) return; // 変更なし
+
+  // 「—」（空文字）選択 → 未割当に戻す確認
+  if(!trimmed) {
+    if(!confirm('担当者を未割当にしますか？')) {
+      // キャンセル → 元の値に戻す
+      if(selectEl) selectEl.value = prevOwner;
+      return;
+    }
+    opp.owner = '';
+    opp.dept  = '—';
+    opp.lastUpdated = new Date().toISOString().split('T')[0];
+    save();
+    toast('担当者を未割当にしました', 'success');
+    renderOpportunities();
+    if(typeof renderDashboard === 'function') renderDashboard();
+    return;
+  }
+
+  // 通常の担当者変更: 担当者の所属部門を引き継ぐ
+  const userObj = (db.users || []).find(u => u.name === trimmed);
+  const newDept = userObj?.dept || opp.dept || '—';
+
+  opp.owner = trimmed;
+  opp.dept  = newDept;
+  opp.lastUpdated = new Date().toISOString().split('T')[0];
+
+  save();
+  const prevLabel = prevOwner || '未割当';
+  toast('担当者を「' + prevLabel + '」→「' + trimmed + '」に変更しました', 'success');
+
+  // 一覧と関連ビューを再描画
+  renderOpportunities();
+  if(typeof renderDashboard === 'function') renderDashboard();
 }
 
 function onStageChange() {

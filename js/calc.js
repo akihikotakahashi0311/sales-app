@@ -500,10 +500,8 @@ function openActivityModal(oppId) {
 }
 
 function saveActivity() {
-  if(!validateRequiredFields([
-    { id: 'f-act-date',    label: '日時' },
-    { id: 'f-act-content', label: '内容' },
-  ])) return;
+  const content = document.getElementById('f-act-content').value.trim();
+  if(!content) { toast('内容を入力してください', 'error'); return; }
   const id      = document.getElementById('f-act-id').value || uid('ACT');
   const date    = document.getElementById('f-act-date').value;
   const type    = document.getElementById('f-act-type').value;
@@ -536,10 +534,8 @@ function openTaskModal(oppId) {
 }
 
 function saveTask() {
-  if(!validateRequiredFields([
-    { id: 'f-task-title', label: 'タスク内容' },
-    { id: 'f-task-due',   label: '期限' },
-  ])) return;
+  const title = document.getElementById('f-task-title').value.trim();
+  if(!title) { toast('タイトルを入力してください', 'error'); return; }
   const id       = document.getElementById('f-task-id').value || uid('TASK');
   const due      = document.getElementById('f-task-due').value;
   const priority = document.getElementById('f-task-priority').value;

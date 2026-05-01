@@ -110,7 +110,7 @@ function renderOpportunities() {
       <td>${recogBadge(o.recog)}</td>
       <td style="font-size:12px;">${o.start||'—'}</td>
       <td style="font-size:12px;">${o.end||'—'}</td>
-      <td style="font-size:12px;">${o.owner}</td>
+      <td>${ownerCellHtml(o)}</td>
       <td>${(()=>{const na=o.nextAction;if(!na?.date&&!na?.action)return '<span style="color:var(--text-muted);font-size:11px;">—</span>';const tod=new Date().toISOString().split('T')[0];const ov=na.date&&na.date<=tod;const pc={urgent:'#E24B4A',high:'#BA7517',normal:'#185FA5'}[na.priority||'normal'];return '<div style="font-size:11px;"><div style="font-weight:600;color:'+(ov?'#E24B4A':pc)+';"'+'>'+(na.date||'—')+(ov?' ⚠':'')+'</div><div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">'+(na.action||'')+'</div></div>';})()}</td>
       <td>
         <div style="display:flex;gap:4px;">

@@ -325,14 +325,18 @@ function buildCashflowData() {
   const forecastEndYm = months[months.length - 1];
 
   // 対象案件
+  // statusFilter:
+  //   ''         → 受注済のみ（weight=1）
+  //   'prob80'   → 確度80%以上 かつ 失注以外（weight=1、売上の100%を計上）
+  //   'pipeline' → 失注以外すべて（weight=確度/100、加重）
   const opps = db.opportunities.filter(o => {
     if(!matchesScope(o)) return false;
     if(statusFilter === 'pipeline') return !['失注'].includes(o.stage);
-    if(statusFilter === 'prob80')   return o.stage !== '失注' && (o.prob || 0) >= 80;
+    if(statusFilter === 'prob80')   return (o.prob || 0) >= 80 && o.stage !== '失注';
     return o.stage === '受注';
   });
 
-  // パイプラインの場合のみ確度で加重する（prob80・受注済のみは100%計上）
+  // パイプラインの場合のみ確度で加重する。prob80 は満額計上（weight=1）
   const useProbWeight = statusFilter === 'pipeline';
 
   // 月別集計用マップ
