@@ -1,11 +1,76 @@
 const MAX_AUTO_BACKUPS = 5;
 let _importData = null;
 
+// ============================================================
+// 権限判定（Critical-1〜5対策の一部）
+// ============================================================
+// ロール定義の不整合を解消し、判定を1箇所に集約。
+// UIのselect要素に存在する選択肢:
+//   営業担当者 / マネージャー / 経理・管理部 / 経営層 / システム管理者
+// 加えて初期データで定義された "管理者" も互換性のためサポート。
+// ============================================================
+
+// 管理者権限（マスタ管理 / 月次確定 / バックアップ / セキュリティ / ユーザー削除）
+function isAdminUser(user) {
+  user = user || (typeof currentUser !== 'undefined' ? currentUser : null);
+  if(!user) return false;
+  return user.role === '管理者'
+      || user.role === 'システム管理者'
+      || user.dept === '管理部';
+}
+
+// マネージャー権限（チームスコープでの閲覧編集）
+function isManagerUser(user) {
+  user = user || (typeof currentUser !== 'undefined' ? currentUser : null);
+  if(!user) return false;
+  return user.role === 'マネージャー' || isAdminUser(user);
+}
+
+// 経理権限（キャッシュフロー予測・会計データ閲覧）
+function isFinanceUser(user) {
+  user = user || (typeof currentUser !== 'undefined' ? currentUser : null);
+  if(!user) return false;
+  return user.role === '経理・管理部'
+      || user.role === '経営層'
+      || isAdminUser(user);
+}
+
+// マスタ画面アクセス権限
+// 顧客マスタ・フェーズ設定: マネージャー以上が閲覧可能
+// それ以外（ユーザー/組織/バックアップ/セキュリティ）: 管理者のみ
+function canAccessMaster(user) {
+  return isManagerUser(user) || isFinanceUser(user);
+}
+
+// マスタの個別操作権限
+function canEditUsers(user)    { return isAdminUser(user); }
+function canEditOrgs(user)     { return isAdminUser(user); }
+function canEditCustomers(user){ return isManagerUser(user); }
+function canManageBackup(user) { return isAdminUser(user); }
+
+// 権限がない場合の標準ガード（呼び出し側で使う）
+function requireAdmin(action = 'この操作') {
+  if(!isAdminUser()) {
+    if(typeof toast === 'function') {
+      toast(`${action}は管理者のみ実行できます`, 'error');
+    }
+    return false;
+  }
+  return true;
+}
+function requireManager(action = 'この操作') {
+  if(!isManagerUser()) {
+    if(typeof toast === 'function') {
+      toast(`${action}はマネージャー以上のみ実行できます`, 'error');
+    }
+    return false;
+  }
+  return true;
+}
+
 // ─ エクスポート
 function exportBackup(mode) {
-  if(!currentUser || (currentUser.role !== '管理者' && currentUser.dept !== '管理部')) {
-    toast('この操作は管理者のみ利用できます', 'error'); return;
-  }
+  if(!requireAdmin('バックアップのエクスポート')) return;
   const now    = new Date();
   const pad    = n => String(n).padStart(2, '0');
   const stamp  = now.getFullYear() + pad(now.getMonth()+1) + pad(now.getDate()) +
@@ -43,9 +108,7 @@ function exportBackup(mode) {
 
 // ─ インポート（ファイル選択）
 function importBackup(input) {
-  if(!currentUser || (currentUser.role !== '管理者' && currentUser.dept !== '管理部')) {
-    toast('この操作は管理者のみ利用できます', 'error'); return;
-  }
+  if(!requireAdmin('バックアップのインポート')) return;
   const file = input.files[0];
   if(!file) return;
 
@@ -405,33 +468,67 @@ function updateUserUI() {
   if(avatarEl)  avatarEl.textContent  = currentUser.name ? currentUser.name.slice(0,1) : '?';
   if(nameEl)    nameEl.textContent    = currentUser.name || '未選択';
   if(sidebarEl) sidebarEl.textContent = currentUser.name || '未選択';
-  // 月次確定ボタン・バックアップタブ・セキュリティタブ: 管理者ロール または 管理部のみ表示
-  const canAdmin = currentUser.role === '管理者' || currentUser.dept === '管理部';
+
+  // 権限フラグの統一
+  const _isAdmin     = isAdminUser();
+  const _canMaster   = canAccessMaster();
+  const _canCashflow = isFinanceUser();
+
+  // 月次確定ボタン: 管理者のみ
   const lockBtn = document.getElementById('btn-monthly-lock');
-  if(lockBtn) lockBtn.style.display = canAdmin ? '' : 'none';
+  if(lockBtn) lockBtn.style.display = _isAdmin ? '' : 'none';
+
+  // バックアップタブ: 管理者のみ
   const backupTab = document.getElementById('tab-master-backup');
   if(backupTab) {
-    backupTab.style.display = canAdmin ? '' : 'none';
-    // バックアップタブが表示中なのに権限なし → 別タブへ切り替え
-    if(!canAdmin && backupTab.classList.contains('active')) {
+    backupTab.style.display = _isAdmin ? '' : 'none';
+    if(!_isAdmin && backupTab.classList.contains('active')) {
       const firstTab = document.querySelector('#page-master .tab:not(#tab-master-backup):not(#tab-master-security)');
       if(firstTab) firstTab.click();
     }
   }
+
+  // セキュリティタブ: 管理者のみ
   const securityTab = document.getElementById('tab-master-security');
   if(securityTab) {
-    securityTab.style.display = canAdmin ? '' : 'none';
-    if(!canAdmin && securityTab.classList.contains('active')) {
+    securityTab.style.display = _isAdmin ? '' : 'none';
+    if(!_isAdmin && securityTab.classList.contains('active')) {
       const firstTab = document.querySelector('#page-master .tab:not(#tab-master-backup):not(#tab-master-security)');
       if(firstTab) firstTab.click();
     }
   }
-  // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみ表示
-  const canCashflow = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
+
+  // ★ Critical-3対策: マスタ画面ナビ自体を非表示（権限なしユーザーから）
+  const masterNav = document.querySelector('.nav-item[data-page="master"]');
+  if(masterNav) {
+    masterNav.style.display = _canMaster ? '' : 'none';
+    // 表示中のページがマスタなのに権限喪失した場合 → ダッシュボードへ
+    if(!_canMaster) {
+      const activePage = document.querySelector('.page.active');
+      if(activePage && activePage.id === 'page-master') navigate('dashboard');
+    }
+  }
+
+  // ユーザー/組織管理タブ: 管理者のみ（顧客・フェーズはマネージャー以上）
+  const usersTab = document.querySelector('#page-master [onclick*="master-users"]');
+  const orgsTab  = document.querySelector('#page-master [onclick*="master-org"]');
+  if(usersTab) usersTab.style.display = _isAdmin ? '' : 'none';
+  if(orgsTab)  orgsTab.style.display  = _isAdmin ? '' : 'none';
+  // 表示中タブが管理者専用 + 非管理者 → 顧客マスタへ切替
+  if(!_isAdmin) {
+    ['users', 'org'].forEach(suffix => {
+      const sec = document.getElementById('master-' + suffix);
+      if(sec && sec.style.display !== 'none') {
+        const custTab = document.querySelector('#page-master [onclick*="master-customers"]');
+        if(custTab) custTab.click();
+      }
+    });
+  }
+
+  // キャッシュフロー予測: 経理権限以上のみ
   const cfNav = document.querySelector('.nav-item[data-page="cashflow"]');
-  if(cfNav) cfNav.style.display = canCashflow ? '' : 'none';
-  // キャッシュフロー表示中なのに権限なし → ダッシュボードへ遷移
-  if(!canCashflow) {
+  if(cfNav) cfNav.style.display = _canCashflow ? '' : 'none';
+  if(!_canCashflow) {
     const activePage = document.querySelector('.page.active');
     if(activePage && activePage.id === 'page-cashflow') navigate('dashboard');
   }

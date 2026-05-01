@@ -497,9 +497,20 @@ function onGlobalSearch(val) {
 const _searchState = {};
 
 function navigate(page) {
+  // ★ Critical-3対策: マスタ画面のアクセス制御
+  if(page === 'master' && currentUser) {
+    if(typeof canAccessMaster === 'function' && !canAccessMaster()) {
+      if(typeof toast === 'function') {
+        toast('マスタ管理画面はマネージャー以上の権限が必要です', 'error');
+      }
+      return;
+    }
+  }
   // キャッシュフロー予測: 経理・管理部 / 管理者 / 管理部所属のみアクセス可
   if(page === 'cashflow' && currentUser) {
-    const canCF = currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部';
+    const canCF = (typeof isFinanceUser === 'function')
+      ? isFinanceUser()
+      : (currentUser.role === '管理者' || currentUser.role === '経理・管理部' || currentUser.dept === '管理部');
     if(!canCF) {
       toast('キャッシュフロー予測は管理部のみ閲覧可能です', 'error');
       return;
@@ -776,6 +787,7 @@ function populateUserModal(u = null) {
 }
 
 function editUser(id) {
+  if(typeof requireAdmin === 'function' && !requireAdmin('ユーザー情報の編集')) return;
   const u = db.users.find(x => x.id === id);
   if(!u) return;
   populateUserModal(u);
@@ -798,6 +810,7 @@ function populateOrgModal(org) {
 }
 
 function editOrg(id) {
+  if(typeof requireAdmin === 'function' && !requireAdmin('組織情報の編集')) return;
   const org = db.orgs.find(o => o.id === id);
   if(!org) return;
   populateOrgModal(org);

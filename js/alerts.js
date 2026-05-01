@@ -1,5 +1,24 @@
 function renderMaster() {
-  document.getElementById('users-tbody').innerHTML = db.users.map(u=>`
+  // ★ Critical-3対策: 関数レベルでアクセス制御（直接呼ばれた場合のガード）
+  if(typeof canAccessMaster === 'function' && !canAccessMaster()) {
+    const tbody1 = document.getElementById('users-tbody');
+    const tbody2 = document.getElementById('org-tbody');
+    const tbody3 = document.getElementById('cust-master-tbody');
+    const empty = '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text-muted);">マスタ管理画面はマネージャー以上の権限が必要です</td></tr>';
+    if(tbody1) tbody1.innerHTML = empty;
+    if(tbody2) tbody2.innerHTML = empty;
+    if(tbody3) tbody3.innerHTML = empty;
+    return;
+  }
+
+  const _isAdmin   = (typeof isAdminUser === 'function') ? isAdminUser() : false;
+  const _isManager = (typeof isManagerUser === 'function') ? isManagerUser() : false;
+
+  // ユーザー一覧（管理者のみ閲覧・編集可、それ以外は空表示）
+  const usersTbody = document.getElementById('users-tbody');
+  if(usersTbody) {
+    if(_isAdmin) {
+      usersTbody.innerHTML = db.users.map(u=>`
     <tr>
       <td class="fw-500">${u.name}</td>
       <td style="font-size:12px;color:var(--text-secondary);">${u.email}</td>
@@ -9,28 +28,98 @@ function renderMaster() {
       <td>
         <div style="display:flex;gap:4px;">
           <button class="btn btn-sm" onclick="editUser('${u.id}')">編集</button>
-          <button class="btn btn-sm btn-danger" onclick="if(confirm('削除しますか？')){db.users=db.users.filter(x=>x.id!=='${u.id}');save();renderMaster();}">削除</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteUserById('${u.id}')">削除</button>
         </div>
       </td>
     </tr>`).join('');
-  document.getElementById('org-tbody').innerHTML = db.orgs.map(o=>`
+    } else {
+      usersTbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text-muted);">ユーザー管理は管理者のみ閲覧できます</td></tr>';
+    }
+  }
+
+  // 組織一覧（管理者のみ）
+  const orgTbody = document.getElementById('org-tbody');
+  if(orgTbody) {
+    if(_isAdmin) {
+      orgTbody.innerHTML = db.orgs.map(o=>`
     <tr>
       <td class="fw-500">${o.name}</td>
       <td>${o.manager}</td>
       <td>${db.users.filter(u=>u.dept===o.name).length}名</td>
       <td class="text-right">${o.budget.toLocaleString()}</td>
-      <td><div style="display:flex;gap:4px;"><button class="btn btn-sm" onclick="editOrg('${o.id}')">編集</button><button class="btn btn-sm btn-danger" onclick="if(confirm('削除しますか？')){db.orgs=db.orgs.filter(x=>x.id!=='${o.id}');save();renderMaster();}">削除</button></div></td>
+      <td><div style="display:flex;gap:4px;"><button class="btn btn-sm" onclick="editOrg('${o.id}')">編集</button><button class="btn btn-sm btn-danger" onclick="deleteOrgById('${o.id}')">削除</button></div></td>
     </tr>`).join('');
-  document.getElementById('cust-master-tbody').innerHTML = db.customers.map(c=>`
+    } else {
+      orgTbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text-muted);">組織管理は管理者のみ閲覧できます</td></tr>';
+    }
+  }
+
+  // 顧客マスタ（マネージャー以上は編集可、それ以外は閲覧のみ）
+  const custTbody = document.getElementById('cust-master-tbody');
+  if(custTbody) {
+    custTbody.innerHTML = db.customers.map(c=>`
     <tr>
       <td class="fw-500">${c.name}</td>
       <td><span class="badge badge-gray">${c.industry}</span></td>
       <td>${c.segment}</td>
       <td>${c.owner}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></td>
+      <td>${_isManager ? `<button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')">削除</button>` : '<span style="color:var(--text-muted);font-size:11px;">閲覧のみ</span>'}</td>
     </tr>`).join('');
+  }
 }
 
+
+// ============================================================
+// マスタ管理: 削除操作（権限チェック付き）
+// ============================================================
+
+// ユーザー削除（管理者のみ実行可、自分自身は削除不可）
+function deleteUserById(userId) {
+  if(typeof requireAdmin === 'function' && !requireAdmin('ユーザーの削除')) return;
+  const target = db.users.find(u => u.id === userId);
+  if(!target) { toast('対象ユーザーが見つかりません', 'error'); return; }
+
+  // 自己削除の防止
+  if(currentUser && (target.id === currentUser.id || target.email === currentUser.email)) {
+    toast('自分自身は削除できません', 'error'); return;
+  }
+
+  // 最後の管理者を削除する場合は警告
+  const adminCount = db.users.filter(u =>
+    u.id !== userId && (u.role === '管理者' || u.role === 'システム管理者' || u.dept === '管理部')
+  ).length;
+  const isTargetAdmin = target.role === '管理者' || target.role === 'システム管理者' || target.dept === '管理部';
+  if(isTargetAdmin && adminCount === 0) {
+    toast('最後の管理者ユーザーは削除できません', 'error'); return;
+  }
+
+  if(!confirm(`ユーザー「${target.name}」を削除しますか？\n\nメール: ${target.email}\nロール: ${target.role}\n\nこの操作は取り消せません。`)) return;
+
+  db.users = db.users.filter(x => x.id !== userId);
+  save();
+  renderMaster();
+  toast(`ユーザー「${target.name}」を削除しました`, 'success');
+}
+
+// 組織削除（管理者のみ実行可、所属メンバーがある場合は警告）
+function deleteOrgById(orgId) {
+  if(typeof requireAdmin === 'function' && !requireAdmin('組織の削除')) return;
+  const target = db.orgs.find(o => o.id === orgId);
+  if(!target) { toast('対象組織が見つかりません', 'error'); return; }
+
+  const memberCount = db.users.filter(u => u.dept === target.name).length;
+  let msg = `組織「${target.name}」を削除しますか？`;
+  if(memberCount > 0) {
+    msg += `\n\n⚠️ この組織には ${memberCount} 名のユーザーが所属しています。\n削除後、これらのユーザーの所属部門が空になります。`;
+  }
+  msg += '\n\nこの操作は取り消せません。';
+  if(!confirm(msg)) return;
+
+  db.orgs = db.orgs.filter(x => x.id !== orgId);
+  save();
+  renderMaster();
+  toast(`組織「${target.name}」を削除しました`, 'success');
+}
 
 function switchMasterTab(el, tabId) {
   el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));

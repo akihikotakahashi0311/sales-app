@@ -15,17 +15,46 @@ function pdfKey(oppId, type) {
   return `pdf_${oppId}_${type}`;
 }
 
-// ファイル一覧を読み込む
+// ============================================================
+// PDF分離保存方式（Critical-8 対策）
+// ============================================================
+// 旧: db.pdfFiles[key] = [{name, size, data:base64, ...}]   ← JSON肥大の元凶
+// 新: db.pdfRefs[key]  = [{name, size, path, driveItemId, ...}]  ← 軽量参照のみ
+//
+// PDF本体はSharePoint上の個別ファイルとして PDFs/{oppId}/{type}_{idx}.pdf に保存。
+// 既存データ（db.pdfFiles）と新データ（db.pdfRefs）は共存可能。
+// 起動時の migratePdfFilesToSharePoint() で段階的に分離する。
+// ============================================================
+
+// PDFキャッシュ（同一セッション内では再ダウンロードを避ける）
+const _pdfDataUrlCache = new Map(); // path → dataUrl
+
+// SharePoint Drive ID（onedrive.js の getGraphEndpoint と同じ値）
+const _PDF_SHAREPOINT_DRIVE_ID = 'b!Yf0QIkoJpEe7mHomV2mvmlIARdLARQxGipXNt59TpYUH60DFtQoVSaNFze9_h2n7';
+
+// PDFのSharePoint上のパスを生成
+function _pdfSharePointPath(oppId, type, fileIdx) {
+  // ファイル名にスペースや特殊文字が入らないよう保証
+  const safeOppId = String(oppId).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeType  = String(type).replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `PDFs/${safeOppId}/${safeType}_${fileIdx}.pdf`;
+}
+function _pdfGraphEndpoint(path) {
+  return `https://graph.microsoft.com/v1.0/drives/${_PDF_SHAREPOINT_DRIVE_ID}/root:/${path}:`;
+}
+
+// ファイル一覧を読み込む（参照リストを返す。dataUrlは含まれない場合あり）
 function getPdfFiles(oppId, type) {
-  // db.pdfFiles に保存（file://対応）
   const key = pdfKey(oppId, type);
+  // 新方式: db.pdfRefs を優先
+  if(db && db.pdfRefs && db.pdfRefs[key]) return db.pdfRefs[key];
+  // 旧方式: db.pdfFiles（マイグレーション完了前のフォールバック）
   if(db && db.pdfFiles && db.pdfFiles[key]) return db.pdfFiles[key];
-  // 旧: _storage からも読み込み（マイグレーション）
+  // 旧々: _storage（古い実装からの移行）
   try {
     const stored = _storage.getItem(key);
     if(stored) {
       const files = JSON.parse(stored);
-      // db.pdfFiles に移行して _storage から削除
       if(db && db.pdfFiles) { db.pdfFiles[key] = files; _storage.removeItem(key); }
       return files;
     }
@@ -156,13 +185,13 @@ function buildQuoteHtmlAndSave(oppId, qNo, customer) {
 
   const blob = new Blob([_fixQuoteHtml(printHtml)], {type: 'text/html;charset=utf-8'});
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     const fname = customer + '様_概算御見積書_' + qNo + '.html';
     const files = getPdfFiles(oppId, 'estimate');
     const existing = files.findIndex(f => f.name === fname);
     const entry = {name: fname, data: e.target.result, size: blob.size, date: new Date().toISOString()};
     if(existing >= 0) files[existing] = entry; else files.push(entry);
-    savePdfFiles(oppId, 'estimate', files);
+    await savePdfFiles(oppId, 'estimate', files);
     save();
     // 案件フェーズを「見積提出」に変更
     const _oi = db.opportunities.findIndex(o => o.id === oppId);
@@ -438,7 +467,7 @@ async function buildAndSaveQuote() {
   if(!win) { toast('ポップアップがブロックされました。', 'error'); return; }
 
   // window.opener 経由で保存できるよう _saveQuotePdf を設定
-  window._saveQuotePdf = function(oid, q, dataUrl) {
+  window._saveQuotePdf = async function(oid, q, dataUrl) {
     try {
       const files = getPdfFiles(oid, 'estimate');
       const cust  = db.opportunities.find(o=>o.id===oid)?.customer || customer;
@@ -446,7 +475,7 @@ async function buildAndSaveQuote() {
       const entry = {name: fname, data: dataUrl, size: dataUrl.length, date: new Date().toISOString()};
       const ex = files.findIndex(f => f.name === fname);
       if(ex >= 0) files[ex] = entry; else files.push(entry);
-      savePdfFiles(oid, 'estimate', files);
+      await savePdfFiles(oid, 'estimate', files);
       const oi = db.opportunities.findIndex(o => o.id === oid);
       if(oi >= 0 && db.opportunities[oi].stage !== '受注' && db.opportunities[oi].stage !== '失注') {
         db.opportunities[oi].stage = '見積提出';
@@ -1023,12 +1052,12 @@ function previewInvoice() {
 }
 
 // 見積書プレビューから保存
-function saveQuotePdfFromPreview(oppId, fileName, dataUrl, size) {
+async function saveQuotePdfFromPreview(oppId, fileName, dataUrl, size) {
   const files = getPdfFiles(oppId, 'estimate');
   const existing = files.findIndex(f => f.name === fileName);
   const entry = {name: fileName, data: dataUrl, size, date: new Date().toISOString()};
   if(existing >= 0) files[existing] = entry; else files.push(entry);
-  savePdfFiles(oppId, 'estimate', files);
+  await savePdfFiles(oppId, 'estimate', files);
   // 案件フェーズを「見積提出」に変更
   const oppIdx = db.opportunities.findIndex(o => o.id === oppId);
   if(oppIdx >= 0 && db.opportunities[oppIdx].stage !== '受注' && db.opportunities[oppIdx].stage !== '失注') {
@@ -1045,13 +1074,13 @@ function saveQuotePdfFromPreview(oppId, fileName, dataUrl, size) {
 }
 
 // プレビューウィンドウから呼ばれる保存関数
-function savePdfFilesFromPreview(oppId, fileName, dataUrl, size, ym) {
+async function savePdfFilesFromPreview(oppId, fileName, dataUrl, size, ym) {
   const files = getPdfFiles(oppId, 'invoice');
   const today = new Date().toISOString();
   const existing = files.findIndex(f => f.name === fileName);
   const entry = {name: fileName, data: dataUrl, size, date: today};
   if(existing >= 0) files[existing] = entry; else files.push(entry);
-  savePdfFiles(oppId, 'invoice', files);
+  await savePdfFiles(oppId, 'invoice', files);
   // 請求日を月次データに書き込む
   if(ym && db.monthly[ym]) {
     if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
@@ -1070,14 +1099,14 @@ function saveInvoiceToOpp() {
   // HTML を Blob → Base64 に変換して案件の「請求書」PDFとして保存
   const blob = new Blob([result.html], {type: 'text/html;charset=utf-8'});
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     const dataUrl  = e.target.result;
     const fileName = customer + '様_ご請求書_' + invNo + '.html';
     const files    = getPdfFiles(oppId, 'invoice');
     const existing = files.findIndex(f => f.name === fileName);
     const entry    = {name: fileName, data: dataUrl, size: blob.size, date: new Date().toISOString()};
     if(existing >= 0) files[existing] = entry; else files.push(entry);
-    savePdfFiles(oppId, 'invoice', files);
+    await savePdfFiles(oppId, 'invoice', files);
     // 請求日を月次データに書き込む
     const invYm = document.getElementById('inv-ym')?.value || '';
     if(invYm && db.monthly[invYm]) {
@@ -1448,26 +1477,275 @@ function previewDelivery() {
 }
 
 // プレビューウィンドウから呼ばれる納品書保存関数
-function saveDeliveryFromPreview(oppId, fileName, dataUrl, size, ym) {
+async function saveDeliveryFromPreview(oppId, fileName, dataUrl, size, ym) {
   if(!db.pdfFiles) db.pdfFiles = {};
   const files = getPdfFiles(oppId, 'delivery');
   const existing = files.findIndex(f => f.name === fileName);
   const entry = {name: fileName, data: dataUrl, size, date: new Date().toISOString()};
   if(existing >= 0) files[existing] = entry; else files.push(entry);
-  savePdfFiles(oppId, 'delivery', files);
+  await savePdfFiles(oppId, 'delivery', files);
   save();
   toast('納品書を案件に保存しました', 'success');
   if(currentDetailOppId === oppId) showOppDetail(oppId);
 }
 
-function savePdfFiles(oppId, type, files) {
-  // db.pdfFiles に保存（save()で永続化）
+// ファイル一覧を保存する（新方式: SharePointへ個別アップロード）
+// 旧シグネチャ savePdfFiles(oppId, type, files) を維持。内部で非同期処理を行う。
+// 戻り値は同期的にtrue（既存呼び出し側の互換性のため）。
+// 失敗時はtoastでエラーを表示するが、呼び出し側のフローは止めない。
+async function savePdfFiles(oppId, type, files) {
   const key = pdfKey(oppId, type);
-  if(!db.pdfFiles) db.pdfFiles = {};
-  if(files.length === 0) {
-    delete db.pdfFiles[key];
+  if(!db.pdfRefs) db.pdfRefs = {};
+  if(!db.pdfDeletionQueue) db.pdfDeletionQueue = [];
+
+  // 旧参照との差分を取り、削除対象をキューに積む
+  const oldRefs = (db.pdfRefs[key] || []).concat(
+    // 旧 db.pdfFiles 側の参照も削除候補に含める（新規保存は新方式に統一）
+    (db.pdfFiles && db.pdfFiles[key]) ? db.pdfFiles[key] : []
+  );
+  const newPaths = new Set();
+  const newRefs  = [];
+
+  // 各ファイルを処理：dataUrlがあれば新規アップロード、pathだけなら既存参照
+  for(let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if(f.path && !f.data) {
+      // 既存参照（変更なし）
+      newRefs.push(f);
+      newPaths.add(f.path);
+      continue;
+    }
+    // 新規 or 更新: dataUrl から SharePoint へアップロード
+    if(f.data && _odSyncEnabled) {
+      try {
+        const ref = await _uploadPdfToSharePoint(oppId, type, i, f);
+        newRefs.push(ref);
+        newPaths.add(ref.path);
+      } catch(e) {
+        console.warn('[PDF] アップロード失敗、Base64で一時保持:', e.message);
+        // フォールバック: 旧形式 db.pdfFiles に一時保存（次回再試行）
+        if(!db.pdfFiles) db.pdfFiles = {};
+        if(!db.pdfFiles[key]) db.pdfFiles[key] = [];
+        db.pdfFiles[key].push(f);
+        // ref は作らずに skip → newRefs には含めない
+      }
+    } else if(f.data && !_odSyncEnabled) {
+      // OneDrive未接続: 旧形式に保存（ローカルのみ）
+      if(!db.pdfFiles) db.pdfFiles = {};
+      if(!db.pdfFiles[key]) db.pdfFiles[key] = [];
+      const existing = db.pdfFiles[key].findIndex(x => x.name === f.name);
+      if(existing >= 0) db.pdfFiles[key][existing] = f;
+      else db.pdfFiles[key].push(f);
+    }
+  }
+
+  // 新参照リストを保存
+  if(newRefs.length === 0) delete db.pdfRefs[key];
+  else db.pdfRefs[key] = newRefs;
+
+  // 削除候補: 旧参照のうち新参照に含まれないもの → ジャーナルに積む（即削除しない）
+  oldRefs.forEach(old => {
+    if(old.path && !newPaths.has(old.path)) {
+      db.pdfDeletionQueue.push({ path: old.path, queuedAt: Date.now() });
+    }
+  });
+
+  // 旧形式エントリも、新方式で全置換できたなら除去
+  if(db.pdfFiles && db.pdfFiles[key] && newRefs.length > 0) {
+    // 旧と新のファイル名が全て新側にあるかチェック
+    const newNames = new Set(newRefs.map(r => r.name));
+    const remainingOld = db.pdfFiles[key].filter(f => !newNames.has(f.name));
+    if(remainingOld.length === 0) delete db.pdfFiles[key];
+    else db.pdfFiles[key] = remainingOld;
+  }
+
+  return true;
+}
+
+// PDFをSharePointへアップロード（4MB以下: 単純PUT、それ以上: upload session）
+async function _uploadPdfToSharePoint(oppId, type, fileIdx, fileEntry) {
+  // dataUrl → ArrayBuffer
+  const base64 = (fileEntry.data || '').split(',')[1] || '';
+  if(!base64) throw new Error('Empty PDF data');
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const path = _pdfSharePointPath(oppId, type, fileIdx);
+  const base = _pdfGraphEndpoint(path);
+  const token = await _getGraphToken();
+  const isHtml = (fileEntry.name || '').toLowerCase().endsWith('.html');
+  const contentType = isHtml ? 'text/html;charset=utf-8' : 'application/pdf';
+
+  let driveItemId = '';
+  if(bytes.length <= 4 * 1024 * 1024) {
+    // 単純PUT
+    const res = await fetch(`${base}/content`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': contentType },
+      body: bytes,
+    });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    driveItemId = data.id || '';
   } else {
-    db.pdfFiles[key] = files;
+    // upload session（4MB超）
+    driveItemId = await _uploadPdfWithSession(base, bytes, token);
+  }
+
+  // セッション内キャッシュにも入れておく（再ダウンロード回避）
+  _pdfDataUrlCache.set(path, fileEntry.data);
+
+  return {
+    name: fileEntry.name,
+    size: fileEntry.size,
+    path,
+    driveItemId,
+    uploadedAt: fileEntry.uploadedAt || new Date().toISOString().split('T')[0],
+    date: fileEntry.date,  // 一部の保存ロジックがdateを使うため互換
+  };
+}
+
+// Upload Session（4MB超のファイル用）
+async function _uploadPdfWithSession(base, bytes, token) {
+  const createRes = await fetch(`${base}/createUploadSession`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } }),
+  });
+  if(!createRes.ok) throw new Error(`createUploadSession failed: HTTP ${createRes.status}`);
+  const { uploadUrl } = await createRes.json();
+
+  // 320KiBの倍数でチャンク送信（3.2MiB単位）
+  const CHUNK = 320 * 1024 * 10;
+  let offset = 0;
+  let lastResult = null;
+  while(offset < bytes.length) {
+    const end = Math.min(offset + CHUNK, bytes.length);
+    const chunk = bytes.slice(offset, end);
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(chunk.length),
+        'Content-Range': `bytes ${offset}-${end - 1}/${bytes.length}`,
+      },
+      body: chunk,
+    });
+    if(!res.ok && res.status !== 202) {
+      throw new Error(`Chunk upload failed at offset ${offset}: HTTP ${res.status}`);
+    }
+    if(res.status === 200 || res.status === 201) {
+      lastResult = await res.json();
+    }
+    offset = end;
+  }
+  return lastResult?.id || '';
+}
+
+// PDFをSharePointから取得（dataUrlで返す）
+async function _fetchPdfFromSharePoint(path) {
+  if(_pdfDataUrlCache.has(path)) return _pdfDataUrlCache.get(path);
+  const url = `https://graph.microsoft.com/v1.0/drives/${_PDF_SHAREPOINT_DRIVE_ID}/root:/${path}:/content`;
+  const token = await _getGraphToken();
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+  _pdfDataUrlCache.set(path, dataUrl);
+  return dataUrl;
+}
+
+// PDFをSharePointから削除（GC用）
+async function _deletePdfFromSharePoint(path) {
+  const url = _pdfGraphEndpoint(path);
+  const token = await _getGraphToken();
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if(!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`);
+  _pdfDataUrlCache.delete(path);
+}
+
+// 削除キューの処理（GC）: 一定期間経過したPDFを実削除
+// 起動時または定期的に呼ぶ
+async function processPdfDeletionQueue() {
+  if(!db.pdfDeletionQueue || db.pdfDeletionQueue.length === 0) return;
+  if(!_odSyncEnabled) return;
+
+  const now = Date.now();
+  const RETAIN_MS = 7 * 24 * 60 * 60 * 1000; // 7日保持
+  const remaining = [];
+  let deleted = 0;
+
+  for(const item of db.pdfDeletionQueue) {
+    if(now - (item.queuedAt || 0) > RETAIN_MS) {
+      try {
+        await _deletePdfFromSharePoint(item.path);
+        deleted++;
+      } catch(e) {
+        console.warn(`[PDF GC] 削除失敗: ${item.path}`, e.message);
+        remaining.push(item);
+      }
+    } else {
+      remaining.push(item);
+    }
+  }
+  db.pdfDeletionQueue = remaining;
+  if(deleted > 0) console.log(`[PDF GC] ${deleted}件のPDFを削除しました`);
+}
+
+// 起動時の段階的マイグレーション: 既存の db.pdfFiles を SharePoint に分離
+// 失敗してもシステムは止まらない（旧形式のまま温存）
+async function migratePdfFilesToSharePoint(maxFiles = 20) {
+  if(!_odSyncEnabled) return;
+  if(!db.pdfFiles || Object.keys(db.pdfFiles).length === 0) return;
+
+  let migrated = 0;
+  let attempted = 0;
+  const start = Date.now();
+
+  for(const [key, files] of Object.entries(db.pdfFiles)) {
+    if(attempted >= maxFiles) break; // 一度に大量移行を避ける（次回起動で続き）
+    const m = key.match(/^pdf_(.+)_([a-z]+)$/);
+    if(!m) continue;
+    const [, oppId, type] = m;
+
+    if(!db.pdfRefs) db.pdfRefs = {};
+    const existingRefs = db.pdfRefs[key] || [];
+    const newRefs = existingRefs.slice();
+    const remainingOldFiles = [];
+
+    for(let i = 0; i < files.length; i++) {
+      if(attempted >= maxFiles) { remainingOldFiles.push(files[i]); continue; }
+      attempted++;
+      const f = files[i];
+      if(!f.data) { remainingOldFiles.push(f); continue; }
+      try {
+        const ref = await _uploadPdfToSharePoint(oppId, type, newRefs.length, f);
+        newRefs.push(ref);
+        migrated++;
+      } catch(e) {
+        console.warn(`[PDF migration] 失敗: ${key}[${i}]`, e.message);
+        remainingOldFiles.push(f); // 失敗したら旧形式に残す
+      }
+    }
+
+    if(newRefs.length > 0) db.pdfRefs[key] = newRefs;
+    if(remainingOldFiles.length > 0) db.pdfFiles[key] = remainingOldFiles;
+    else delete db.pdfFiles[key];
+  }
+
+  if(migrated > 0) {
+    const sec = ((Date.now() - start) / 1000).toFixed(1);
+    toast(`✅ ${migrated}件のPDFをSharePointへ移行しました（${sec}秒）`, 'success');
+    // 移行結果を保存（OneDrive上のJSONを軽量化）
+    if(typeof save === 'function') save();
   }
 }
 
@@ -1540,7 +1818,7 @@ function handlePdfDrop(event, type) {
 // FileReader でBase64変換して保存
 function readPdfAsBase64(file, type) {
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     const oppId = currentPdfOppId || '__new__';
     const files = getPdfFiles(oppId, type);
     // 同名ファイルは上書き
@@ -1553,7 +1831,8 @@ function readPdfAsBase64(file, type) {
     };
     if(existingIdx >= 0) files[existingIdx] = entry;
     else files.push(entry);
-    savePdfFiles(oppId, type, files);
+    // 非同期: SharePointへの個別アップロード（4MB超は upload session）
+    await savePdfFiles(oppId, type, files);
     renderPdfList(type);
     toast(`${PDF_LABELS[type]}「${file.name}」を添付しました`, 'success');
     // 契約書アップロード時: ポップアップで契約日を入力
@@ -1565,16 +1844,32 @@ function readPdfAsBase64(file, type) {
   reader.readAsDataURL(file);
 }
 
-// PDFを新しいタブで開く
-function openPdfFile(oppId, type, index) {
+// PDFを新しいタブで開く（path参照の場合はSharePointから遅延取得）
+async function openPdfFile(oppId, type, index) {
   const files = getPdfFiles(oppId, type);
   const f = files[index];
   if(!f) return;
 
+  // dataUrl の取得（旧形式: f.data に既にあり、新形式: f.path から取得）
+  let dataUrl = f.data;
+  if(!dataUrl && f.path) {
+    toast('PDFを取得中...', 'info');
+    try {
+      dataUrl = await _fetchPdfFromSharePoint(f.path);
+    } catch(e) {
+      toast(`PDF取得に失敗しました: ${e.message}`, 'error');
+      return;
+    }
+  }
+  if(!dataUrl) {
+    toast('PDFデータが見つかりません', 'error');
+    return;
+  }
+
   // HTML ファイル（見積書・請求書）は直接 HTML として表示
   if(f.name && f.name.toLowerCase().endsWith('.html')) {
     // Base64 data URL → Blob URL に変換して開く
-    const b64 = f.data.split(',')[1];
+    const b64 = dataUrl.split(',')[1];
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -1596,7 +1891,7 @@ function openPdfFile(oppId, type, index) {
   win.document.write(
     '<html><head><title>' + (f.name||'PDF') + '</title></head>' +
     '<body style="margin:0;padding:0;">' +
-    '<embed src="' + f.data + '" type="application/pdf" width="100%" height="100%">' +
+    '<embed src="' + dataUrl + '" type="application/pdf" width="100%" height="100%">' +
     '</body></html>'
   );
   win.document.close();
@@ -1605,12 +1900,12 @@ function openPdfFile(oppId, type, index) {
 
 // PDFファイルを削除
 // 案件詳細モーダルから削除（モーダルを再描画）
-function deletePdfFromDetail(oppId, type, index, el) {
+async function deletePdfFromDetail(oppId, type, index, el) {
   var files = getPdfFiles(oppId, type);
   var name  = files[index]?.name || '';
   if(!confirm('"' + name + '" を削除しますか？')) return;
   files.splice(index, 1);
-  savePdfFiles(oppId, type, files);
+  await savePdfFiles(oppId, type, files);
   toast('削除しました', 'success');
   // 詳細モーダルを再描画
   const o = db.opportunities.find(x => x.id === oppId);
@@ -1618,25 +1913,40 @@ function deletePdfFromDetail(oppId, type, index, el) {
   renderOpportunities();
 }
 
-function deletePdfFile(oppId, type, index) {
+async function deletePdfFile(oppId, type, index) {
   const files = getPdfFiles(oppId, type);
   const fname = files[index]?.name || '';
   if(!confirm(`「${fname}」を削除しますか？`)) return;
   files.splice(index, 1);
-  savePdfFiles(oppId, type, files);
+  await savePdfFiles(oppId, type, files);
   renderPdfList(type);
   toast(`削除しました`);
 }
 
 // 案件IDが新規→既存になった場合にデータを移行（新規登録後）
-function migratePdfFiles(oldId, newId) {
-  PDF_TYPES.forEach(type => {
+async function migratePdfFiles(oldId, newId) {
+  for(const type of PDF_TYPES) {
     const files = getPdfFiles(oldId, type);
     if(files.length > 0) {
-      savePdfFiles(newId, type, files);
-      if(db.pdfFiles) delete db.pdfFiles[pdfKey(oldId, type)];
+      // 旧 oppId → 新 oppId にコピー
+      // 新方式の参照を持つファイルは path も書き換える必要があるが、
+      // 既にSharePoint上にあるファイルの「移動」は重いので、
+      // 元参照を残しつつ新IDでも参照できるようにする
+      const oldKey = pdfKey(oldId, type);
+      const newKey = pdfKey(newId, type);
+      // 参照のコピー（path は旧IDのままだが動作上問題なし）
+      if(db.pdfRefs && db.pdfRefs[oldKey]) {
+        if(!db.pdfRefs) db.pdfRefs = {};
+        db.pdfRefs[newKey] = db.pdfRefs[oldKey];
+        delete db.pdfRefs[oldKey];
+      }
+      if(db.pdfFiles && db.pdfFiles[oldKey]) {
+        if(!db.pdfFiles) db.pdfFiles = {};
+        db.pdfFiles[newKey] = db.pdfFiles[oldKey];
+        delete db.pdfFiles[oldKey];
+      }
     }
-  });
+  }
 }
 
 // 案件の添付ファイル件数を取得（バッジ表示用）
@@ -1679,7 +1989,7 @@ function renderOppPdfBadges(oppId) {
 }
 
 // バッジの × ボタンから直接削除
-function deletePdfFromBadge(el) {
+async function deletePdfFromBadge(el) {
   var oppId = el.dataset.oid;
   var type  = el.dataset.type;
   var idx   = +el.dataset.idx;
@@ -1687,7 +1997,7 @@ function deletePdfFromBadge(el) {
   if(!confirm('"' + name + '" を削除しますか？')) return;
   var files = getPdfFiles(oppId, type);
   files.splice(idx, 1);
-  savePdfFiles(oppId, type, files);
+  await savePdfFiles(oppId, type, files);
   toast('削除しました', 'success');
   // 案件一覧を再描画
   renderOpportunities();
@@ -3086,12 +3396,27 @@ function saveCustomer() {
 }
 
 function deleteCustomer(id) {
-  if(!confirm('削除しますか？')) return;
-  db.customers = db.customers.filter(c=>c.id!==id);
-  save(); renderMaster();
+  if(typeof requireManager === 'function' && !requireManager('顧客の削除')) return;
+  const target = db.customers.find(c => c.id === id);
+  if(!target) { toast('対象顧客が見つかりません', 'error'); return; }
+
+  // この顧客に紐づく案件があるか警告
+  const relatedOpps = db.opportunities.filter(o => o.customer === target.name).length;
+  let msg = `顧客「${target.name}」を削除しますか？`;
+  if(relatedOpps > 0) {
+    msg += `\n\n⚠️ この顧客には ${relatedOpps} 件の案件が紐づいています。\n顧客を削除しても案件は残りますが、顧客マスタからは消えます。`;
+  }
+  msg += '\n\nこの操作は取り消せません。';
+  if(!confirm(msg)) return;
+
+  db.customers = db.customers.filter(c => c.id !== id);
+  save();
+  renderMaster();
+  toast(`顧客「${target.name}」を削除しました`, 'success');
 }
 
 function saveUser() {
+  if(typeof requireAdmin === 'function' && !requireAdmin('ユーザー情報の保存')) return;
   const name  = document.getElementById('f-user-name').value.trim();
   const email = document.getElementById('f-user-email').value.trim();
   if(!name || !email) { toast('名前とメールは必須です', 'error'); return; }
@@ -3135,6 +3460,7 @@ function saveUser() {
 }
 
 function saveOrg() {
+  if(typeof requireAdmin === 'function' && !requireAdmin('組織情報の保存')) return;
   const name    = document.getElementById('f-org-name').value.trim();
   if(!name) return;
   const editId  = document.getElementById('f-org-id')?.value || '';
