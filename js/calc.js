@@ -131,8 +131,9 @@ function importBackup(input) {
       if(data.exportedAt)    info.push(`エクスポート日時: ${new Date(data.exportedAt).toLocaleString('ja-JP')}`);
       info.push(`モード: ${data.mode || 'full'}`);
 
+      // BUG-8対策: 各項目にユーザー入力(data.mode等)が混じる可能性があるためエスケープ
       document.getElementById('backup-import-info').innerHTML =
-        info.map(t => `<div style="margin-bottom:4px;">• ${t}</div>`).join('');
+        info.map(t => `<div style="margin-bottom:4px;">• ${_h(t)}</div>`).join('');
       document.getElementById('backup-import-preview').style.display = '';
     } catch(err) {
       toast('JSONファイルの解析に失敗しました: ' + err.message, 'error');
@@ -416,7 +417,7 @@ function renderBackupHistory() {
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;
         border-bottom:1px solid var(--border-light);">
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:500;">${bk.label}</div>
+        <div style="font-size:13px;font-weight:500;">${_h(bk.label)}</div>
         <div style="font-size:11px;color:var(--text-muted);">案件 ${opps}件 ／ ${size} KB</div>
       </div>
       <button class="btn btn-sm" onclick="exportAutoBackup(${i})" title="ダウンロード">📤</button>
@@ -577,11 +578,11 @@ function openUserSelector() {
     const initials = u.name ? u.name.slice(0,1) : '?';
     const isSelected = currentUser?.id === u.id;
     return `<div class="user-list-item ${isSelected?'selected':''}"
-      onclick="selectUser('${u.id}')" id="user-item-${u.id}">
-      <div class="user-avatar">${initials}</div>
+      onclick="selectUser('${_hj(u.id)}')" id="user-item-${_h(u.id)}">
+      <div class="user-avatar">${_h(initials)}</div>
       <div>
-        <div class="user-info-name">${u.name}</div>
-        <div class="user-info-role">${u.role} ／ ${u.dept}</div>
+        <div class="user-info-name">${_h(u.name)}</div>
+        <div class="user-info-role">${_h(u.role)} ／ ${_h(u.dept)}</div>
       </div>
       ${isSelected ? '<span style="margin-left:auto;color:var(--accent);">✓</span>' : ''}
     </div>`;
@@ -781,7 +782,7 @@ function openActivityModal(oppId) {
   const ownerSel = document.getElementById('f-act-owner');
   if(ownerSel) {
     ownerSel.innerHTML = db.users.filter(u=>u.active)
-      .map(u=>'<option value="'+u.name+'"'+(u.name===(currentUser?.name)?'selected':'')+'>'+u.name+'</option>').join('');
+      .map(u=>'<option value="'+_ha(u.name)+'"'+(u.name===(currentUser?.name)?'selected':'')+'>'+_h(u.name)+'</option>').join('');
   }
   openModal('activity');
 }
@@ -815,7 +816,7 @@ function openTaskModal(oppId) {
   const ownerSel = document.getElementById('f-task-owner');
   if(ownerSel) {
     ownerSel.innerHTML = db.users.filter(u=>u.active)
-      .map(u=>'<option value="'+u.name+'"'+(u.name===(currentUser?.name)?'selected':'')+'>'+u.name+'</option>').join('');
+      .map(u=>'<option value="'+_ha(u.name)+'"'+(u.name===(currentUser?.name)?'selected':'')+'>'+_h(u.name)+'</option>').join('');
   }
   openModal('task');
 }

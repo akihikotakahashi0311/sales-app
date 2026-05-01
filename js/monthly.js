@@ -56,6 +56,23 @@ function addMonths(ym, n) {
   return y + '-' + String(m).padStart(2,'0');
 }
 
+// BUG-14対策: 日付付き(YYYY-MM-DD)に対する安全な月加算。
+//   JSの new Date().setMonth() は 1/31 + 1ヶ月 → 3/3 のような暗黙オーバーフロー変換を行う。
+//   このヘルパは加算後の月の末日を上限としてクランプし、2/29 + 1ヶ月 → 3/29 などの直感的な結果を返す。
+//   "YYYY-MM-DD" 形式の文字列を入出力とする。
+function addMonthsSafe(dateStr, n) {
+  if(!dateStr) return dateStr;
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return dateStr;
+  let y = parseInt(m[1]), mo = parseInt(m[2]) + n, d = parseInt(m[3]);
+  while(mo > 12){ mo -= 12; y++; }
+  while(mo < 1) { mo += 12; y--; }
+  // 加算後の月の末日を取得し、元日が末日を超える場合はクランプ
+  const lastDay = new Date(y, mo, 0).getDate();
+  if(d > lastDay) d = lastDay;
+  return y + '-' + String(mo).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+}
+
 function getMonthRange() {
   const msr = db.monthlySummary || {};
   if(dashMode === 'fy') {
@@ -144,7 +161,7 @@ function initDashMonthSel() {
   const months = [...new Set([...Object.keys(msr), ...Object.keys(db.monthly || {})])].sort().reverse();
   const sel = document.getElementById('dash-month-sel');
   if(sel) {
-    sel.innerHTML = months.map(m => `<option value="${m}" ${m === dashMonth ? 'selected' : ''}>${monthLabel(m)}</option>`).join('');
+    sel.innerHTML = months.map(m => `<option value="${_ha(m)}" ${m === dashMonth ? 'selected' : ''}>${_h(monthLabel(m))}</option>`).join('');
     sel.onchange = () => { dashMonth = sel.value; renderDashboard(); };
   }
 
@@ -644,13 +661,34 @@ function nextMonthKey(key) {
   return m === 12 ? `${y+1}-01` : `${y}-${String(m+1).padStart(2,'0')}`;
 }
 
-function uid(prefix) { return prefix + '-' + Date.now().toString(36).toUpperCase(); }
+// BUG-5対策: 同一ms内の複数uid呼び出しによるID衝突を防止する。
+//   従来: Date.now() のみで生成 → バルクインポート/ループで衝突可能
+//   対策: タイムスタンプ + 6桁ランダム + 内部カウンター で衝突確率を実質ゼロに
+let _uidCounter = 0;
+function uid(prefix) {
+  _uidCounter = (_uidCounter + 1) & 0xffff;
+  const ts   = Date.now().toString(36).toUpperCase();
+  const rnd  = Math.floor(Math.random() * 0xffffff).toString(36).toUpperCase().padStart(4, '0');
+  const cnt  = _uidCounter.toString(36).toUpperCase().padStart(2, '0');
+  return prefix + '-' + ts + rnd + cnt;
+}
 
 // 案件ID: 6桁の数字（既存の最大値+1）
+// BUG-5対策: バルクインポート時の連続発行で同じ maxId が返ることがあったため、
+//   既に発行済みのIDを記録するSetで二重発行を防止する。
+//   (db.opportunities への追加が反映される前に複数uidOpp()を呼ぶケースに対応)
+const _issuedOppIds = new Set();
 function uidOpp() {
   const existing = db.opportunities.map(o => parseInt(o.id) || 0);
-  const maxId = existing.length > 0 ? Math.max(...existing) : 100000;
-  return String(maxId + 1);
+  let candidate = (existing.length > 0 ? Math.max(...existing) : 100000) + 1;
+  // 既存ID + すでに発行済みIDと衝突しないものを採番
+  while(existing.includes(candidate) || _issuedOppIds.has(candidate)) {
+    candidate++;
+  }
+  _issuedOppIds.add(candidate);
+  // メモリリーク防止: Set のサイズが大きくなりすぎたらクリア（保存後はdb側で管理されるため）
+  if(_issuedOppIds.size > 1000) _issuedOppIds.clear();
+  return String(candidate);
 }
 
 function destroyChart(id) { if(charts[id]) { charts[id].destroy(); delete charts[id]; } }
@@ -698,11 +736,11 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 function populateOppModal(opp=null) {
   // 顧客オートコンプリートリストを更新
   const custDl = document.getElementById('customer-list');
-  if(custDl) custDl.innerHTML = db.customers.map(c => `<option value="${c.name}">`).join('');
+  if(custDl) custDl.innerHTML = db.customers.map(c => `<option value="${_ha(c.name)}">`).join('');
   const custSel = document.getElementById('f-opp-customer');
   custSel.value = ''; // 毎回クリア
   const ownerSel = document.getElementById('f-opp-owner');
-  ownerSel.innerHTML = db.users.filter(u=>u.active).map(u => `<option>${u.name}</option>`).join('');
+  ownerSel.innerHTML = db.users.filter(u=>u.active).map(u => `<option value="${_ha(u.name)}">${_h(u.name)}</option>`).join('');
   // 新規登録時はログイン中ユーザーをデフォルト選択
   if(!opp && currentUser) ownerSel.value = currentUser.name;
   document.getElementById('opp-modal-title').textContent = opp ? '案件編集' : '新規案件登録';
@@ -774,7 +812,7 @@ function populateOppModal(opp=null) {
 }
 
 function populateCustModal() {
-  document.getElementById('f-cust-owner').innerHTML = db.users.filter(u=>u.active).map(u=>`<option>${u.name}</option>`).join('');
+  document.getElementById('f-cust-owner').innerHTML = db.users.filter(u=>u.active).map(u=>`<option value="${_ha(u.name)}">${_h(u.name)}</option>`).join('');
 }
 function populateUserModal(u = null) {
   document.getElementById('user-modal-title').textContent = u ? 'ユーザー編集' : 'ユーザー追加';
@@ -794,7 +832,7 @@ function editUser(id) {
   openModal('user');
 }
 function populateOrgModal(org) {
-  document.getElementById('f-org-manager').innerHTML = db.users.filter(u=>u.active).map(u=>`<option>${u.name}</option>`).join('');
+  document.getElementById('f-org-manager').innerHTML = db.users.filter(u=>u.active).map(u=>`<option value="${_ha(u.name)}">${_h(u.name)}</option>`).join('');
   if(org) {
     document.getElementById('org-modal-title').textContent = '部門編集';
     document.getElementById('f-org-id').value     = org.id;

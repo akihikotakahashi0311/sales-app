@@ -61,7 +61,7 @@ function renderSegmentTab() {
   document.getElementById('seg-detail-tbody').innerHTML = segs.map(s => {
     const d = segData[s];
     return `<tr>
-      <td class="fw-500">${s}</td>
+      <td class="fw-500">${_h(s)}</td>
       <td class="text-right">${d.count}</td>
       <td class="text-right">${fmtM(d.amount)}</td>
       <td class="text-right ${d.sales>0?'text-green':''}">${fmt(d.sales)}</td>
@@ -74,7 +74,7 @@ function renderSegmentTab() {
   const btnEl = document.getElementById('seg-filter-btns');
   if(btnEl) btnEl.innerHTML = ['全セグメント',...segs.slice(0,8)].map(s => {
     const active = (!activeSegFilter&&s==='全セグメント')||activeSegFilter===s;
-    return `<button class="btn btn-sm" style="${active?'background:var(--accent);color:white;border-color:var(--accent);font-size:11px;':'font-size:11px;'}" onclick="activeSegFilter='${s==='全セグメント'?'':s}';renderSegTrend();">${s}</button>`;
+    return `<button class="btn btn-sm" style="${active?'background:var(--accent);color:white;border-color:var(--accent);font-size:11px;':'font-size:11px;'}" onclick="activeSegFilter='${s==='全セグメント'?'':_hj(s)}';renderSegTrend();">${_h(s)}</button>`;
   }).join('');
   renderSegTrend();
 }
@@ -111,7 +111,7 @@ function renderSegTrend() {
   const btnEl = document.getElementById('seg-filter-btns');
   if(btnEl) btnEl.innerHTML = ['全セグメント',...segsAll.slice(0,8)].map(s=>{
     const active = (!activeSegFilter&&s==='全セグメント')||activeSegFilter===s;
-    return `<button class="btn btn-sm" style="${active?'background:var(--accent);color:white;border-color:var(--accent);font-size:11px;':'font-size:11px;'}" onclick="activeSegFilter='${s==='全セグメント'?'':s}';renderSegTrend();">${s}</button>`;
+    return `<button class="btn btn-sm" style="${active?'background:var(--accent);color:white;border-color:var(--accent);font-size:11px;':'font-size:11px;'}" onclick="activeSegFilter='${s==='全セグメント'?'':_hj(s)}';renderSegTrend();">${_h(s)}</button>`;
   }).join('');
 }
 
@@ -140,7 +140,7 @@ function renderOwnerTab() {
   document.getElementById('owner-metrics').innerHTML = sorted.slice(0,4).map((ow,i)=>{
     const cls=['blue','green','purple','amber'][i]||'gray';
     const d=ownerData[ow];
-    return `<div class="metric-card ${cls}"><div class="metric-label">${ow}</div><div class="metric-value">${fmt(d.sales)}</div><div class="metric-change neutral">担当${d.count}件 / 受注${d.won}件</div></div>`;
+    return `<div class="metric-card ${cls}"><div class="metric-label">${_h(ow)}</div><div class="metric-value">${fmt(d.sales)}</div><div class="metric-change neutral">担当${d.count}件 / 受注${d.won}件</div></div>`;
   }).join('');
 
   destroyChart('chartOwnerSales');
@@ -164,7 +164,7 @@ function renderOwnerTab() {
   });
 
   const sel = document.getElementById('owner-filter');
-  if(sel) sel.innerHTML = '<option value="">全担当者</option>'+owners.map(o=>`<option>${o}</option>`).join('');
+  if(sel) sel.innerHTML = '<option value="">全担当者</option>'+owners.map(o=>`<option value="${_ha(o)}">${_h(o)}</option>`).join('');
   renderOwnerTable();
 }
 
@@ -190,10 +190,10 @@ function renderOwnerTable() {
       const m=monthData[o.id]||{};
       return `<tr>
         <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-          <a href="#" onclick="showOppDetail('${o.id}');return false;" style="color:var(--accent);text-decoration:none;">${o.name}</a>
+          <a href="#" onclick="showOppDetail('${_hj(o.id)}');return false;" style="color:var(--accent);text-decoration:none;">${_h(o.name)}</a>
         </td>
-        <td style="font-size:12px;">${o.customer}</td>
-        <td><span class="badge badge-gray" style="font-size:10px;">${o.owner||'—'}</span></td>
+        <td style="font-size:12px;">${_h(o.customer)}</td>
+        <td><span class="badge badge-gray" style="font-size:10px;">${_h(o.owner)||'—'}</span></td>
         <td>${stageBadge(o.stage)}</td>
         <td class="text-right fw-500">${fmt(o.amount)}</td>
         <td class="text-right ${(m.sales||0)>0?'text-green':''}">${fmt(m.sales||0)}</td>
@@ -269,9 +269,9 @@ function renderLandingReport() {
   }).join('');
   document.getElementById('landing-model-detail').innerHTML=models.map(m=>`
     <div style="padding:12px;background:var(--bg-secondary);border-radius:var(--radius-md);">
-      <div style="font-size:11px;font-weight:600;color:${m.color};margin-bottom:4px;">${m.label}</div>
+      <div style="font-size:11px;font-weight:600;color:${m.color};margin-bottom:4px;">${_h(m.label)}</div>
       <div style="font-size:20px;font-weight:600;margin-bottom:3px;">¥${(m.total/100).toFixed(1)}M</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${m.desc}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${_h(m.desc)}</div>
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);">
         <span>実績 ¥${(totalActual/100).toFixed(1)}M</span>
         <span style="color:${m.color};">+¥${(m.proj/100).toFixed(1)}M</span>
@@ -284,13 +284,13 @@ function renderLandingReport() {
     const cum=m.cumProgress||0,done=Math.round(o.amount*cum/100),rem=calcRem(o),wgt=Math.round(rem*o.prob/100);
     pd+=done;pr+=rem;pw+=wgt;
     return `<tr>
-      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.name}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_h(o.name)}</td>
       <td class="text-right">${fmt(o.amount)}</td>
       <td class="text-right"><div style="display:flex;align-items:center;gap:5px;justify-content:flex-end;"><div class="progress-bar" style="width:48px;"><div class="progress-fill" style="width:${Math.min(100,cum)}%;background:var(--accent);"></div></div><span style="font-size:11px;">${cum.toFixed(1)}%</span></div></td>
       <td class="text-right">${fmt(done)}</td>
       <td class="text-right fw-500 text-accent">${fmt(rem)}</td>
       <td class="text-right">${fmt(wgt)}</td>
-      <td style="font-size:11px;color:var(--text-muted);">${o.owner||'—'}</td>
+      <td style="font-size:11px;color:var(--text-muted);">${_h(o.owner)||'—'}</td>
     </tr>`;
   }).join('')||'<tr><td colspan="7" class="text-center" style="padding:16px;color:var(--text-muted);">進行基準案件なし</td></tr>';
   const pb=document.getElementById('poc-remaining-badge');
@@ -305,16 +305,16 @@ function renderLandingReport() {
       const m=monthData[o.id]||{},rem=calcRem(o),wgt=Math.round(rem*o.prob/100);
       return `<tr>
         <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-          <a href="#" onclick="showOppDetail('${o.id}');return false;" style="color:var(--accent);text-decoration:none;">${o.name}</a>
+          <a href="#" onclick="showOppDetail('${_hj(o.id)}');return false;" style="color:var(--accent);text-decoration:none;">${_h(o.name)}</a>
         </td>
         <td>${stageBadge(o.stage)}</td>
-        <td style="font-size:12px;">${o.prob}%</td>
+        <td style="font-size:12px;">${Number(o.prob)||0}%</td>
         <td>${recogBadge(o.recog)}</td>
         <td class="text-right">${fmt(o.amount)}</td>
         <td class="text-right ${(m.sales||0)>0?'text-green':''}">${fmt(m.sales||0)}</td>
         <td class="text-right">${fmt(rem)}</td>
         <td class="text-right fw-500 text-accent">${fmt(wgt)}</td>
-        <td style="font-size:11px;color:var(--text-muted);">${o.owner||'—'}</td>
+        <td style="font-size:11px;color:var(--text-muted);">${_h(o.owner)||'—'}</td>
       </tr>`;
     }).join('');
 }
@@ -327,7 +327,7 @@ function initHistoryTab() {
   const months = [...new Set([...Object.keys(msr),...Object.keys(db.monthly||{})])].sort().reverse();
   const sel    = document.getElementById('history-month-sel');
   if(!sel) return;
-  sel.innerHTML = months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
+  sel.innerHTML = months.map(m=>`<option value="${_ha(m)}">${_h(monthLabel(m))}</option>`).join('');
   renderHistoryTab();
 }
 
@@ -369,7 +369,7 @@ function renderHistoryTab() {
     else status='<span class="badge badge-gray">—</span>';
     return `<tr>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-        <a href="#" onclick="showOppDetail('${o.id}');return false;" style="color:var(--accent);text-decoration:none;">${o.name}</a>
+        <a href="#" onclick="showOppDetail('${_hj(o.id)}');return false;" style="color:var(--accent);text-decoration:none;">${_h(o.name)}</a>
       </td>
       <td>${recogBadge(o.recog)}</td>
       <td class="text-right">${fmt(m.sales||0)}</td>

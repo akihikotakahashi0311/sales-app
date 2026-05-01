@@ -128,9 +128,9 @@ function renderCustomerReport() {
 
   document.getElementById('customer-tbody').innerHTML = custEntries.map(([name,d])=>`
     <tr>
-      <td class="fw-500">${name}</td>
-      <td><span class="badge badge-gray">${d.industry}</span></td>
-      <td>${d.segment}</td>
+      <td class="fw-500">${_h(name)}</td>
+      <td><span class="badge badge-gray">${_h(d.industry)}</span></td>
+      <td>${_h(d.segment)}</td>
       <td class="text-right">${fmt(d.sales)}</td>
       <td class="text-right">${fmt(d.billing)}</td>
       <td class="text-right">${fmt(d.cash)}</td>
@@ -311,16 +311,16 @@ function renderAlerts() {
     const _isPast = a.date && new Date(a.date).setHours(0,0,0,0) < _alertToday.getTime();
     const _rowStyle = a.dismissed ? 'opacity:0.5;' : (_isPast ? 'background:#ffd0d0;border-left:4px solid #e53935;' : '');
     return `
-    <div class="alert-row${a.dismissed?' dismissed':''}" id="alert-${a.id}" data-alert-id="${a.id}" style="${_rowStyle}">
-      <div class="alert-icon ${a.type}">${iconSVG[a.type]||''}</div>
+    <div class="alert-row${a.dismissed?' dismissed':''}" id="alert-${_h(a.id)}" data-alert-id="${_ha(a.id)}" style="${_rowStyle}">
+      <div class="alert-icon ${_h(a.type)}">${iconSVG[a.type]||''}</div>
       <div class="alert-content">
-        <div class="alert-title">${a.title}${a.dismissed?' <span style="font-size:10px;color:var(--text-muted);">[対応済]</span>':''}</div>
-        <div class="alert-detail">${a.detail||""}</div>
-        <div class="alert-meta">${a.date}</div>
+        <div class="alert-title">${_h(a.title)}${a.dismissed?' <span style="font-size:10px;color:var(--text-muted);">[対応済]</span>':''}</div>
+        <div class="alert-detail">${_h(a.detail)||""}</div>
+        <div class="alert-meta">${_h(a.date)}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-        ${a.oppId ? `<button class="btn btn-sm" style="font-size:11px;" onclick="showOppDetail('${a.oppId}')">案件詳細</button>` : ''}
-        ${!a.dismissed ? `<button class="btn btn-sm" onclick="dismissAlert('${a.id}')">対応済</button>` : `<span style="font-size:11px;color:var(--text-muted);">対応済</span>`}
+        ${a.oppId ? `<button class="btn btn-sm" style="font-size:11px;" onclick="showOppDetail('${_hj(a.oppId)}')">案件詳細</button>` : ''}
+        ${!a.dismissed ? `<button class="btn btn-sm" onclick="dismissAlert('${_hj(a.id)}')">対応済</button>` : `<span style="font-size:11px;color:var(--text-muted);">対応済</span>`}
       </div>
     </div>`;
   }).join('') : '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>該当するアラートがありません</p></div>';

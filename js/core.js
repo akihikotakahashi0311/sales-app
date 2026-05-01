@@ -1,3 +1,45 @@
+// ============================================================
+// BUG-8対策: HTMLエスケープのグローバルユーティリティ
+// 全ファイル共通の XSS対策関数。ユーザー入力（案件名、顧客名、メモ等）を
+// テンプレートリテラルやinnerHTMLに埋め込む際に必ず通すこと。
+//   - escapeHtml(s)   : テキストノード相当のエスケープ
+//   - escapeAttr(s)   : 属性値用（escapeHtmlと同等で扱う）
+//   - escapeJsString(s): onclick="foo('...')"のような属性内JS文字列リテラル用
+// ============================================================
+function escapeHtml(s) {
+  if(s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+// 属性値専用（基本的にescapeHtmlと同じだが意味付けのため別名で公開）
+function escapeAttr(s) { return escapeHtml(s); }
+// onclick="foo('...')" のような属性内JS文字列リテラル用
+//   1. シングルクオートを\'にエスケープ
+//   2. バックスラッシュを\\
+//   3. 改行/復帰を\n,\r
+//   4. その後にHTMLエスケープを通すことで属性値としても安全になる
+function escapeJsString(s) {
+  if(s === null || s === undefined) return '';
+  const escaped = String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/</g, '\\x3C')   // </script> 等の早期終了対策
+    .replace(/>/g, '\\x3E');
+  // HTML属性として埋め込む際の二重エスケープ
+  return escaped.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// 短縮エイリアス（テンプレートリテラル内で使いやすい）
+const _h = escapeHtml;
+const _ha = escapeAttr;
+const _hj = escapeJsString;
+
 function toggleSidebar() {
   const sidebar  = document.getElementById('sidebar');
   const overlay  = document.getElementById('sidebar-overlay');
@@ -47,10 +89,20 @@ function onCustInput(el) {
     return;
   }
   dd.innerHTML = matches.map((c, i) => {
-    const name = q ? c.name.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi'),
-      m => '<mark>' + m + '</mark>') : c.name;
-    return `<div class="ac-item" data-name="${c.name}" data-idx="${i}"
-      onmousedown="selectCust('${c.name.replace(/'/g, "\'")}')">${name}</div>`;
+    // BUG-8対策: name はユーザー入力なので先にHTMLエスケープしてから <mark> を埋め込む
+    // 検索クエリにも HTMLメタ文字が含まれる可能性があるため、エスケープ後の文字列に対してマッチング
+    const safeName = _h(c.name);
+    let display = safeName;
+    if(q) {
+      try {
+        const safeQ = _h(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        display = safeName.replace(new RegExp(safeQ, 'gi'), m => '<mark>' + m + '</mark>');
+      } catch(e) {
+        display = safeName;
+      }
+    }
+    return `<div class="ac-item" data-name="${_ha(c.name)}" data-idx="${i}"
+      onmousedown="selectCust('${_hj(c.name)}')">${display}</div>`;
   }).join('');
   dd.classList.add('open');
   _acIndex = -1;

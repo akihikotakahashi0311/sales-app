@@ -1012,15 +1012,15 @@ function renderCashflowSchedule(oppForecasts) {
 
   tbody.innerHTML = rows.map(r => `
     <tr style="${r.status === 'overdue' ? 'background:var(--red-light);' : ''}">
-      <td style="padding:8px;font-weight:500;cursor:pointer;color:var(--accent);" onclick="showOppDetail('${r.o.id}')">${r.o.name}</td>
-      <td style="padding:8px;">${r.o.customer || '—'}</td>
+      <td style="padding:8px;font-weight:500;cursor:pointer;color:var(--accent);" onclick="showOppDetail('${_hj(r.o.id)}')">${_h(r.o.name)}</td>
+      <td style="padding:8px;">${_h(r.o.customer) || '—'}</td>
       <td style="padding:8px;text-align:center;">${recogBadge(r.o.recog)}</td>
       <td style="padding:8px;text-align:right;font-weight:500;">${fmt(r.o.amount)}</td>
       <td style="padding:8px;text-align:right;">${r.totalBilling ? fmt(r.totalBilling) : '—'}</td>
       <td style="padding:8px;text-align:right;">${r.totalCash ? fmt(r.totalCash) : '—'}</td>
       <td style="padding:8px;text-align:right;${r.uncollected > 0 ? 'color:var(--red);font-weight:600;' : ''}">${r.uncollected > 0 ? fmt(r.uncollected) : '—'}</td>
-      <td style="padding:8px;text-align:center;">${r.nextBillingYm ? monthLabel(r.nextBillingYm) : '—'}</td>
-      <td style="padding:8px;text-align:center;${r.status==='overdue' ? 'color:var(--red);font-weight:600;' : ''}">${r.nextPaymentYm ? monthLabel(r.nextPaymentYm) : '—'}</td>
+      <td style="padding:8px;text-align:center;">${r.nextBillingYm ? _h(monthLabel(r.nextBillingYm)) : '—'}</td>
+      <td style="padding:8px;text-align:center;${r.status==='overdue' ? 'color:var(--red);font-weight:600;' : ''}">${r.nextPaymentYm ? _h(monthLabel(r.nextPaymentYm)) : '—'}</td>
       <td style="padding:8px;text-align:right;font-style:italic;color:var(--amber);">${r.nextPaymentAmt > 0 ? fmt(r.nextPaymentAmt) : '—'}</td>
       <td style="padding:8px;text-align:center;">${statusBadgeMap[r.status] || ''}</td>
     </tr>

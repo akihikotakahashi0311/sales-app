@@ -63,7 +63,7 @@ function renderMonthly() {
   const mDeptSel = document.getElementById('monthly-dept-filter');
   if(mDeptSel && mDeptSel.options.length <= 1) {
     const depts = [...new Set(db.opportunities.map(o=>o.dept||'').filter(Boolean))].sort();
-    mDeptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option>${d}</option>`).join('');
+    mDeptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option value="${_ha(d)}">${_h(d)}</option>`).join('');
     if(mdf) mDeptSel.value = mdf;
   }
 
@@ -72,7 +72,7 @@ function renderMonthly() {
   if(mCustSel) {
     const prevCust = mCustSel.value;
     const custs = [...new Set(db.opportunities.map(o=>o.customer||'').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
-    mCustSel.innerHTML = '<option value="">全顧客</option>' + custs.map(c=>`<option value="${c}">${c}</option>`).join('');
+    mCustSel.innerHTML = '<option value="">全顧客</option>' + custs.map(c=>`<option value="${_ha(c)}">${_h(c)}</option>`).join('');
     if(prevCust) mCustSel.value = prevCust;
   }
 
@@ -181,32 +181,32 @@ function renderMonthly() {
       else if(_daysToEnd <= 60) _rowBg = 'background:#ffe8cc;'; // 薄いオレンジ（60日以内）
     }
     return `<tr style="${_rowBg}">
-      <td style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">${o.id}</td>
-      <td style="font-size:12px;"><a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a>${teamsIconHtml(o)}</td>
+      <td style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">${_h(o.id)}</td>
+      <td style="font-size:12px;"><a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${_hj(o.id)}');return false;">${_h(o.name)}</a>${teamsIconHtml(o)}</td>
       <td>${recogBadge(o.recog)}</td>
-      <td class="text-right"><input class="cell-input" type="text" value="${m.sales}" ${dis}
-        onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${o.id}','sales',v)})"
+      <td class="text-right"><input class="cell-input" type="text" value="${Number(m.sales)||0}" ${dis}
+        onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${_hj(o.id)}','sales',v)})"
         style="cursor:${locked?'default':'pointer'};" readonly></td>
-      <td class="text-right"><input class="cell-input" type="text" value="${m.billing}" ${dis}
-        onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${o.id}','billing',v)})"
+      <td class="text-right"><input class="cell-input" type="text" value="${Number(m.billing)||0}" ${dis}
+        onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${_hj(o.id)}','billing',v)})"
         style="cursor:${locked?'default':'pointer'};" readonly></td>
-      <td class="text-right"><input class="cell-input" type="text" value="${m.cash}" ${dis}
-        onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${o.id}','cash',v)})"
+      <td class="text-right"><input class="cell-input" type="text" value="${Number(m.cash)||0}" ${dis}
+        onclick="openCalcFor(this,{unit:'万円',step:0.0001,onConfirm:v=>updateMonthlyCell('${_hj(o.id)}','cash',v)})"
         style="cursor:${locked?'default':'pointer'};" readonly></td>
       <td class="text-right"><input class="cell-input ${isPoc?'poc':''}" type="text" value="${m.progress.toFixed(1)}" ${!isPoc||locked?'disabled':''}
-        onclick="openCalcFor(this,{unit:'%',max:100,step:1,onConfirm:v=>updateMonthlyCell('${o.id}','progress',v)})"
+        onclick="openCalcFor(this,{unit:'%',max:100,step:1,onConfirm:v=>updateMonthlyCell('${_hj(o.id)}','progress',v)})"
         style="cursor:pointer;" readonly></td>
       <td class="text-right" style="font-size:12px;">${m.cumProgress.toFixed(1)}%</td>
       <td class="text-right fw-500" style="font-size:12px;color:${uncollected>0?'var(--red-dark)':'var(--text-muted)'};">${fmt(uncollected)}</td>
       <td>${statusBadge}</td>
-      <td style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">${o.owner||'—'}</td>
-      <td style="font-size:11px;color:var(--text-muted);">${m.updatedBy||'—'}</td>
+      <td style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">${_h(o.owner)||'—'}</td>
+      <td style="font-size:11px;color:var(--text-muted);">${_h(m.updatedBy)||'—'}</td>
       <td style="white-space:nowrap;">
         <div style="display:flex;gap:4px;">
         <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;"
-          onclick="generateInvoice('${o.id}','${currentMonth}')">請求書作成</button>
+          onclick="generateInvoice('${_hj(o.id)}','${_hj(currentMonth)}')">請求書作成</button>
         <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;background:var(--green);color:#fff;border-color:var(--green);"
-          onclick="generateDelivery('${o.id}','${currentMonth}')">納品書作成</button>
+          onclick="generateDelivery('${_hj(o.id)}','${_hj(currentMonth)}')">納品書作成</button>
         </div>
       </td>
     </tr>`;
@@ -303,8 +303,8 @@ function renderPocTable() {
     const remaining = o.amount - prevSales - delta;
     return `<tr>
       <td style="font-size:12px;font-weight:500;">
-        <a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a>
-        <div style="font-size:10px;color:var(--text-muted);">${o.customer}</div>
+        <a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${_hj(o.id)}');return false;">${_h(o.name)}</a>
+        <div style="font-size:10px;color:var(--text-muted);">${_h(o.customer)}</div>
       </td>
       <td class="text-right">${fmt(o.amount)}</td>
       <td class="text-right" style="color:var(--text-muted);">${+prevCum.toFixed(4)}%</td>
@@ -314,7 +314,7 @@ function renderPocTable() {
           : `<input type="number" min="0" max="100" step="0.0001"
               value="${+((m.progress||0).toFixed(4))}"
               style="width:80px;text-align:right;border:1px solid var(--accent);border-radius:4px;padding:3px 6px;font-size:13px;font-weight:600;color:var(--accent);background:var(--bg-primary);"
-              onchange="updateMonthlyCell('${o.id}','progress',this.value)"
+              onchange="updateMonthlyCell('${_hj(o.id)}','progress',this.value)"
               onclick="this.select()">`
         }
       </td>
@@ -327,7 +327,7 @@ function renderPocTable() {
               <input type="number" step="0.0001"
                 value="${Math.round(delta*10000)/10000}"
                 style="width:84px;text-align:right;border:1px solid var(--green);border-radius:4px;padding:3px 6px;font-size:13px;font-weight:600;color:var(--green);background:var(--bg-primary);"
-                onchange="updateMonthlyCell('${o.id}','poc_sales',this.value)"
+                onchange="updateMonthlyCell('${_hj(o.id)}','poc_sales',this.value)"
                 onclick="this.select()">
               <span style="font-size:11px;color:var(--text-muted);">万</span>
             </div>`

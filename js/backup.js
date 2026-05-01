@@ -412,23 +412,23 @@ function renderDashboard() {
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;
         border-left:3px solid ${color};background:${isOverdue?'rgba(226,75,74,0.05)':'var(--bg-secondary)'};
         border-radius:0 6px 6px 0;cursor:pointer;"
-        onclick="showOppDetail('${o.id}')">
+        onclick="showOppDetail('${_hj(o.id)}')">
         <div style="flex:1;min-width:0;">
           <div style="font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-            ${isOverdue?'⚠ ':''}${o.name}
+            ${isOverdue?'⚠ ':''}${_h(o.name)}
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:1px;">
-            ${o.nextAction.action||'—'}　／　${o.owner||'—'}
+            ${_h(o.nextAction.action)||'—'}　／　${_h(o.owner)||'—'}
           </div>
         </div>
         <div style="text-align:right;flex-shrink:0;">
           <div style="font-size:11px;font-weight:600;color:${color};">
             ${isOverdue ? Math.abs(daysLeft)+'日超過' : daysLeft===0?'本日':'あと'+daysLeft+'日'}
           </div>
-          <div style="font-size:10px;color:var(--text-muted);">${o.nextAction.date}</div>
+          <div style="font-size:10px;color:var(--text-muted);">${_h(o.nextAction.date)}</div>
         </div>
         <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${color}22;color:${color};white-space:nowrap;">
-          ${priorityLabel[pri]||'通常'}
+          ${_h(priorityLabel[pri]||'通常')}
         </span>
       </div>`;
     };
@@ -465,7 +465,7 @@ function renderDashboard() {
   document.getElementById('recog-legend').innerHTML = recogLabels.map((k,i) => `
     <span style="display:flex;align-items:center;gap:7px;">
       <span style="width:10px;height:10px;border-radius:2px;background:${recogColors[k]||'#888'};flex-shrink:0;"></span>
-      <span style="color:var(--text-secondary);">${k} <strong>${Math.round(recogData[i]/rtotal*100)}%</strong></span>
+      <span style="color:var(--text-secondary);">${_h(k)} <strong>${Math.round(recogData[i]/rtotal*100)}%</strong></span>
     </span>`).join('');
 
   // ファネル（フェーズ変更履歴つき）
@@ -473,17 +473,26 @@ function renderDashboard() {
   const stageColors = {'リード':'#888780','提案中':'#378ADD','見積提出':'#BA7517','交渉中':'#534AB7','受注':'#1D9E75'};
 
   // フェーズ別: 平均滞留日数を計算
+  // BUG-6対策: 従来は [...hist].reverse().find() で最新エントリーを見つけた後に
+  //   hist.indexOf(entry) で位置を取得していたが、同じフェーズが履歴中に複数回
+  //   出現する（例: 提案中 → 交渉中 → 提案中に差戻し）と indexOf は最初の出現位置を返すため、
+  //   滞留日数が誤って大きく計算されていた。lastIndexOf に変更し、最新エントリの位置から
+  //   次のフェーズ変更までの日数を正しく算出する。
   function calcAvgDays(stage) {
     const oppsInStage = opps.filter(o => o.stage === stage && o.stageHistory?.length);
     if(!oppsInStage.length) return null;
     const now = new Date();
     const days = oppsInStage.map(o => {
       const hist = o.stageHistory;
-      const entry = [...hist].reverse().find(h => h.stage === stage);
-      if(!entry) return null;
+      // 最新エントリのインデックスを直接特定（同stageが複数回出現するケース対応）
+      let entryIdx = -1;
+      for(let i = hist.length - 1; i >= 0; i--) {
+        if(hist[i].stage === stage) { entryIdx = i; break; }
+      }
+      if(entryIdx < 0) return null;
+      const entry = hist[entryIdx];
       const entryDate = new Date(entry.date);
       // 次のフェーズ変更日（or 今日）
-      const entryIdx = hist.indexOf(entry);
       const nextEntry = hist[entryIdx + 1];
       const exitDate  = nextEntry ? new Date(nextEntry.date) : now;
       const diff = Math.round((exitDate - entryDate) / 86400000);
@@ -527,7 +536,7 @@ function renderDashboard() {
       }
     }
     return `${cvLabel}<div class="funnel-row">
-      <div class="funnel-label">${d.stage}${daysLabel}</div>
+      <div class="funnel-label">${_h(d.stage)}${daysLabel}</div>
       <div class="funnel-track">
         <div class="funnel-fill" style="width:${pct}%;background:${stageColors[d.stage]};">${d.count}件</div>
       </div>
@@ -545,20 +554,20 @@ function renderDashboard() {
   document.getElementById('dash-opp-tbody').innerHTML = periodOpps.map(o => `
     <tr>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-        <a href="#" style="color:var(--accent);text-decoration:none;font-weight:500;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a>
+        <a href="#" style="color:var(--accent);text-decoration:none;font-weight:500;" onclick="showOppDetail('${_hj(o.id)}');return false;">${_h(o.name)}</a>
       </td>
-      <td style="font-size:12px;">${o.customer}</td>
+      <td style="font-size:12px;">${_h(o.customer)}</td>
       <td>${stageBadge(o.stage)}</td>
       <td>
         <div style="display:flex;align-items:center;gap:5px;">
-          <div class="progress-bar"><div class="progress-fill" style="width:${o.prob}%;background:${o.prob>=70?'var(--green)':o.prob>=40?'var(--amber)':'var(--red)'};"></div></div>
-          <span style="font-size:12px;">${o.prob}%</span>
+          <div class="progress-bar"><div class="progress-fill" style="width:${Number(o.prob)||0}%;background:${o.prob>=70?'var(--green)':o.prob>=40?'var(--amber)':'var(--red)'};"></div></div>
+          <span style="font-size:12px;">${Number(o.prob)||0}%</span>
         </div>
       </td>
       <td class="fw-500">${fmt(o.amount)}</td>
       <td>${recogBadge(o.recog)}</td>
       <td class="text-right ${periodSales[o.id]>0?'text-green fw-500':''}">${fmt(periodSales[o.id]||0)}</td>
-      <td style="font-size:12px;color:var(--text-secondary);">${o.owner || '—'}</td>
+      <td style="font-size:12px;color:var(--text-secondary);">${_h(o.owner) || '—'}</td>
     </tr>`).join('');
   renderContractDelay();
 }

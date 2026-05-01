@@ -20,15 +20,15 @@ function renderMaster() {
     if(_isAdmin) {
       usersTbody.innerHTML = db.users.map(u=>`
     <tr>
-      <td class="fw-500">${u.name}</td>
-      <td style="font-size:12px;color:var(--text-secondary);">${u.email}</td>
+      <td class="fw-500">${_h(u.name)}</td>
+      <td style="font-size:12px;color:var(--text-secondary);">${_h(u.email)}</td>
       <td>${roleBadge(u.role)}</td>
-      <td>${u.dept}</td>
+      <td>${_h(u.dept)}</td>
       <td><span class="badge ${u.active?'badge-green':'badge-red'}">${u.active?'有効':'無効'}</span></td>
       <td>
         <div style="display:flex;gap:4px;">
-          <button class="btn btn-sm" onclick="editUser('${u.id}')">編集</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteUserById('${u.id}')">削除</button>
+          <button class="btn btn-sm" onclick="editUser('${_hj(u.id)}')">編集</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteUserById('${_hj(u.id)}')">削除</button>
         </div>
       </td>
     </tr>`).join('');
@@ -43,11 +43,11 @@ function renderMaster() {
     if(_isAdmin) {
       orgTbody.innerHTML = db.orgs.map(o=>`
     <tr>
-      <td class="fw-500">${o.name}</td>
-      <td>${o.manager}</td>
+      <td class="fw-500">${_h(o.name)}</td>
+      <td>${_h(o.manager)}</td>
       <td>${db.users.filter(u=>u.dept===o.name).length}名</td>
-      <td class="text-right">${o.budget.toLocaleString()}</td>
-      <td><div style="display:flex;gap:4px;"><button class="btn btn-sm" onclick="editOrg('${o.id}')">編集</button><button class="btn btn-sm btn-danger" onclick="deleteOrgById('${o.id}')">削除</button></div></td>
+      <td class="text-right">${(Number(o.budget)||0).toLocaleString()}</td>
+      <td><div style="display:flex;gap:4px;"><button class="btn btn-sm" onclick="editOrg('${_hj(o.id)}')">編集</button><button class="btn btn-sm btn-danger" onclick="deleteOrgById('${_hj(o.id)}')">削除</button></div></td>
     </tr>`).join('');
     } else {
       orgTbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--text-muted);">組織管理は管理者のみ閲覧できます</td></tr>';
@@ -59,11 +59,11 @@ function renderMaster() {
   if(custTbody) {
     custTbody.innerHTML = db.customers.map(c=>`
     <tr>
-      <td class="fw-500">${c.name}</td>
-      <td><span class="badge badge-gray">${c.industry}</span></td>
-      <td>${c.segment}</td>
-      <td>${c.owner}</td>
-      <td>${_isManager ? `<button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')">削除</button>` : '<span style="color:var(--text-muted);font-size:11px;">閲覧のみ</span>'}</td>
+      <td class="fw-500">${_h(c.name)}</td>
+      <td><span class="badge badge-gray">${_h(c.industry)}</span></td>
+      <td>${_h(c.segment)}</td>
+      <td>${_h(c.owner)}</td>
+      <td>${_isManager ? `<button class="btn btn-sm btn-danger" onclick="deleteCustomer('${_hj(c.id)}')">削除</button>` : '<span style="color:var(--text-muted);font-size:11px;">閲覧のみ</span>'}</td>
     </tr>`).join('');
   }
 }

@@ -725,7 +725,7 @@ function generateInvoice(oppId, ym) {
   // 担当者selectを初期化
   const invOwnerSel = document.getElementById('inv-owner');
   invOwnerSel.innerHTML = db.users.filter(u=>u.active)
-    .map(u => '<option value="'+u.name+'"'+(u.name===owner?' selected':'')+'>'+u.name+'</option>').join('');
+    .map(u => '<option value="'+_ha(u.name)+'"'+(u.name===owner?' selected':'')+'>'+_h(u.name)+'</option>').join('');
   document.getElementById('inv-due').value         = '当該請求書発行月の翌月末までにお願いします';
   document.getElementById('inv-notes').value       = '';
 
@@ -750,16 +750,16 @@ function addInvItem(date, name, tax, qty, unit, price) {
   const tbody = document.getElementById('inv-items-tbody');
   const tr = document.createElement('tr');
   tr.innerHTML =
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:110px;" type="date" value="' + (date||'') + '"></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100%;min-width:160px;" value="' + (name||'') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:110px;" type="date" value="' + _ha(date||'') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100%;min-width:160px;" value="' + _ha(name||'') + '"></td>' +
     '<td><select class="form-control" style="font-size:11px;padding:3px 4px;width:60px;" onchange="renderInvTotals()">' +
       '<option value="10%"' + (tax==='10%'?' selected':'') + '>10%</option>' +
       '<option value="8%"' + (tax==='8%'?' selected':'') + '>8%</option>' +
       '<option value="非課税"' + (tax==='非課税'?' selected':'') + '>非課税</option>' +
     '</select></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:60px;text-align:right;" type="number" min="1" value="' + (qty||1) + '" oninput="renderInvTotals()"></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:80px;" value="' + (unit||'式') + '"></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100px;text-align:right;" type="number" value="' + (price||0) + '" oninput="renderInvTotals()"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:60px;text-align:right;" type="number" min="1" value="' + (Number(qty)||1) + '" oninput="renderInvTotals()"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:80px;" value="' + _ha(unit||'式') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100px;text-align:right;" type="number" value="' + (Number(price)||0) + '" oninput="renderInvTotals()"></td>' +
     '<td style="text-align:right;font-size:11px;padding:0 4px;" class="inv-amt-cell">0</td>' +
     '<td><button class="btn btn-sm btn-danger" style="padding:2px 5px;font-size:10px;" onclick="this.closest(\'tr\').remove();renderInvTotals();">×</button></td>';
   tbody.appendChild(tr);
@@ -1165,7 +1165,7 @@ function generateDelivery(oppId, ym) {
 
   const delOwnerSel = document.getElementById('del-owner');
   delOwnerSel.innerHTML = db.users.filter(u=>u.active)
-    .map(u => '<option value="'+u.name+'"'+(u.name===owner?' selected':'')+'>'+u.name+'</option>').join('');
+    .map(u => '<option value="'+_ha(u.name)+'"'+(u.name===owner?' selected':'')+'>'+_h(u.name)+'</option>').join('');
 
   document.getElementById('del-payment').value  = '毎月末日締、翌々月末日迄';
   document.getElementById('del-delivery').value = 'お打合せの通り';
@@ -1183,10 +1183,10 @@ function addDelItem(name, qty, unit, price, isTen) {
   const tbody = document.getElementById('del-items-tbody');
   const tr = document.createElement('tr');
   tr.innerHTML =
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100%;min-width:140px;" value="' + (name||'') + '"></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:55px;text-align:right;" type="number" min="1" value="' + (qty||1) + '" oninput="renderDelTotals()"></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:55px;" value="' + (unit||'式') + '"></td>' +
-    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100px;text-align:right;" type="number" value="' + (price||0) + '" oninput="renderDelTotals()"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100%;min-width:140px;" value="' + _ha(name||'') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:55px;text-align:right;" type="number" min="1" value="' + (Number(qty)||1) + '" oninput="renderDelTotals()"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:55px;" value="' + _ha(unit||'式') + '"></td>' +
+    '<td><input class="form-control" style="font-size:11px;padding:3px 5px;width:100px;text-align:right;" type="number" value="' + (Number(price)||0) + '" oninput="renderDelTotals()"></td>' +
     '<td style="text-align:right;font-size:11px;padding:0 4px;" class="del-amt-cell">0</td>' +
     '<td><select class="form-control" style="font-size:11px;padding:2px 4px;width:55px;" onchange="renderDelTotals()">' +
       '<option value="10%"' + (isTen?' selected':'') + '>10%</option>' +
@@ -1782,9 +1782,9 @@ function renderPdfList(type) {
     listEl.innerHTML = files.map((f, i) => `
       <div class="pdf-file-item">
         <span class="pdf-icon">📄</span>
-        <span class="pdf-name" onclick="openPdfFile('${oppId}','${type}',${i})" title="${f.name}">${f.name}</span>
+        <span class="pdf-name" onclick="openPdfFile('${_hj(oppId)}','${_hj(type)}',${i})" title="${_ha(f.name)}">${_h(f.name)}</span>
         <span class="pdf-size">${fmtFileSize(f.size)}</span>
-        <button class="pdf-del" onclick="deletePdfFile('${oppId}','${type}',${i})" title="削除">×</button>
+        <button class="pdf-del" onclick="deletePdfFile('${_hj(oppId)}','${_hj(type)}',${i})" title="削除">×</button>
       </div>`).join('');
   } else {
     areaEl?.classList.remove('has-file');
@@ -3288,43 +3288,43 @@ function showOppDetail(id) {
     const files = getPdfFiles(o.id, type);
     if(!files.length) return '';
     return `<div style="margin-bottom:8px;">
-      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">${PDF_LABELS[type]}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">${_h(PDF_LABELS[type])}</div>
       <div style="display:flex;flex-direction:column;gap:4px;">
         ${files.map((f,i)=>`
           <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;
             background:var(--bg-secondary);border-radius:6px;
             border:1px solid var(--border-light);">
-            <span style="font-size:16px;cursor:pointer;flex:none;"              onclick="openPdfFile('${o.id}','${type}',${i})">📄</span>
+            <span style="font-size:16px;cursor:pointer;flex:none;"              onclick="openPdfFile('${_hj(o.id)}','${_hj(type)}',${i})">📄</span>
             <span style="font-size:12px;color:var(--accent);font-weight:500;
               overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;cursor:pointer;"
-              onclick="openPdfFile('${o.id}','${type}',${i})">${f.name}</span>
+              onclick="openPdfFile('${_hj(o.id)}','${_hj(type)}',${i})">${_h(f.name)}</span>
             <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${fmtFileSize(f.size)}</span>
-            <span style="font-size:11px;color:var(--accent);cursor:pointer;white-space:nowrap;"              onclick="openPdfFile('${o.id}','${type}',${i})">開く →</span>
+            <span style="font-size:11px;color:var(--accent);cursor:pointer;white-space:nowrap;"              onclick="openPdfFile('${_hj(o.id)}','${_hj(type)}',${i})">開く →</span>
             <button style="border:none;background:none;cursor:pointer;color:var(--text-muted);
-              font-size:14px;padding:0 2px;line-height:1;flex:none;"              onclick="deletePdfFromDetail('${o.id}','${type}',${i},this)" title="削除">×</button>
+              font-size:14px;padding:0 2px;line-height:1;flex:none;"              onclick="deletePdfFromDetail('${_hj(o.id)}','${_hj(type)}',${i},this)" title="削除">×</button>
           </div>`).join('')}
       </div>
     </div>`;
   }).filter(Boolean).join('');
   document.getElementById('detail-modal-body').innerHTML = `
     <div class="section-title">基本情報</div>
-    <div class="kv-row"><span class="kv-key">案件ID</span><span class="kv-val" style="font-family:monospace;font-size:12px;">${o.id}</span></div>
-    <div class="kv-row"><span class="kv-key">顧客</span><span class="kv-val fw-500">${o.customer}</span></div>
-    <div class="kv-row"><span class="kv-key">担当者</span><span class="kv-val">${o.owner}</span></div>
-    <div class="kv-row"><span class="kv-key">部門</span><span class="kv-val">${o.dept}</span></div>
+    <div class="kv-row"><span class="kv-key">案件ID</span><span class="kv-val" style="font-family:monospace;font-size:12px;">${_h(o.id)}</span></div>
+    <div class="kv-row"><span class="kv-key">顧客</span><span class="kv-val fw-500">${_h(o.customer)}</span></div>
+    <div class="kv-row"><span class="kv-key">担当者</span><span class="kv-val">${_h(o.owner)}</span></div>
+    <div class="kv-row"><span class="kv-key">部門</span><span class="kv-val">${_h(o.dept)}</span></div>
     <div class="kv-row"><span class="kv-key">フェーズ</span><span class="kv-val">${stageBadge(o.stage)}</span></div>
-    <div class="kv-row"><span class="kv-key">確度</span><span class="kv-val">${o.prob}%</span></div>
+    <div class="kv-row"><span class="kv-key">確度</span><span class="kv-val">${Number(o.prob)||0}%</span></div>
     <div class="kv-row"><span class="kv-key">契約総額</span><span class="kv-val fw-500" style="font-size:16px;">${fmt(o.amount)}</span></div>
     <div class="kv-row"><span class="kv-key">加重額</span><span class="kv-val">${fmt(o.amount * o.prob / 100)}</span></div>
     <div class="kv-row"><span class="kv-key">売上計上方式</span><span class="kv-val">${recogBadge(o.recog)}</span></div>
-    <div class="kv-row"><span class="kv-key">契約期間</span><span class="kv-val">${o.start||'—'} 〜 ${o.end||'—'}</span></div>
-    ${o.memo ? `<div class="kv-row"><span class="kv-key">メモ</span><span class="kv-val" style="font-size:12px;color:var(--text-secondary);">${o.memo}</span></div>` : ''}
+    <div class="kv-row"><span class="kv-key">契約期間</span><span class="kv-val">${_h(o.start)||'—'} 〜 ${_h(o.end)||'—'}</span></div>
+    ${o.memo ? `<div class="kv-row"><span class="kv-key">メモ</span><span class="kv-val" style="font-size:12px;color:var(--text-secondary);">${_h(o.memo)}</span></div>` : ''}
 
-    <div class="section-title">当月実績（${monthLabel(currentMonth)}）</div>
+    <div class="section-title">当月実績（${_h(monthLabel(currentMonth))}）</div>
     <div class="kv-row"><span class="kv-key">売上計上額</span><span class="kv-val fw-500">${fmt(m.sales)}</span></div>
     <div class="kv-row"><span class="kv-key">請求額</span><span class="kv-val">${fmt(m.billing)}</span></div>
     <div class="kv-row"><span class="kv-key">入金額</span><span class="kv-val">${fmt(m.cash)}</span></div>
-    <div class="kv-row"><span class="kv-key">未回収（請求-入金）</span><span class="kv-val ${m.billing-m.cash>0?'text-red':''}">${fmt(m.billing - m.cash)}</span></div>
+    <div class="kv-row"><span class="kv-key">未回収(請求-入金)</span><span class="kv-val ${m.billing-m.cash>0?'text-red':''}">${fmt(m.billing - m.cash)}</span></div>
 
     ${poc ? `
     <div class="section-title">進行基準 計算詳細</div>

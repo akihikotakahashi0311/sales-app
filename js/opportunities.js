@@ -50,13 +50,13 @@ function renderOpportunities() {
   const ownerSel = document.getElementById('opp-owner-filter');
   if(ownerSel && ownerSel.options.length <= 1) {
     const owners = [...new Set(db.opportunities.map(o=>o.owner).filter(Boolean))].sort();
-    ownerSel.innerHTML = '<option value="">全担当者</option>' + owners.map(o=>`<option>${o}</option>`).join('');
+    ownerSel.innerHTML = '<option value="">全担当者</option>' + owners.map(o=>`<option value="${_ha(o)}">${_h(o)}</option>`).join('');
     if(of) ownerSel.value = of;
   }
   const deptSel = document.getElementById('opp-dept-filter');
   if(deptSel && deptSel.options.length <= 1) {
     const depts = [...new Set(db.opportunities.map(o=>o.dept||'').filter(Boolean))].sort();
-    deptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option>${d}</option>`).join('');
+    deptSel.innerHTML = '<option value="">全部門</option>' + depts.map(d=>`<option value="${_ha(d)}">${_h(d)}</option>`).join('');
     if(df) deptSel.value = df;
   }
 
@@ -78,13 +78,22 @@ function renderOpportunities() {
     if(typeof va === 'number') return (va - vb) * oppSortDir;
     return String(va).localeCompare(String(vb), 'ja') * oppSortDir;
   });
-  const totalAmt = filtered.reduce((s,o)=>s+o.amount,0);
-  const weighted = filtered.reduce((s,o)=>s+o.amount*o.prob/100,0);
+  // BUG-15対策: 1000件超でブラウザがフリーズするため、案件一覧は最大表示件数を設定。
+  //   500件を超える場合は上位500件のみ表示し、件数バッジでフィルター利用を促す。
+  const OPP_LIST_LIMIT = 500;
+  const _filteredAll = filtered;
+  const _truncated = _filteredAll.length > OPP_LIST_LIMIT;
+  if(_truncated) {
+    filtered = _filteredAll.slice(0, OPP_LIST_LIMIT);
+  }
+
+  const totalAmt = _filteredAll.reduce((s,o)=>s+o.amount,0);
+  const weighted = _filteredAll.reduce((s,o)=>s+o.amount*o.prob/100,0);
   document.getElementById('opp-metrics').innerHTML = `
-    <div class="metric-card blue"><div class="metric-label">表示件数</div><div class="metric-value">${filtered.length}件</div></div>
+    <div class="metric-card blue"><div class="metric-label">表示件数</div><div class="metric-value">${_filteredAll.length}件${_truncated?'<span style="font-size:10px;color:var(--amber);margin-left:4px;">(上位'+OPP_LIST_LIMIT+'件のみ表示)</span>':''}</div></div>
     <div class="metric-card purple"><div class="metric-label">総契約額</div><div class="metric-value">${fmtM(totalAmt)}</div></div>
     <div class="metric-card green"><div class="metric-label">加重合計</div><div class="metric-value">${fmtM(weighted)}</div></div>
-    <div class="metric-card amber"><div class="metric-label">受注案件</div><div class="metric-value">${filtered.filter(o=>o.stage==='受注').length}件</div></div>
+    <div class="metric-card amber"><div class="metric-label">受注案件</div><div class="metric-value">${_filteredAll.filter(o=>o.stage==='受注').length}件</div></div>
   `;
   document.getElementById('opp-total-amount').textContent = fmt(totalAmt);
   document.getElementById('opp-weighted-amount').textContent = fmt(weighted);
@@ -93,29 +102,29 @@ function renderOpportunities() {
   const opSel = document.getElementById('opp-select-all');
   if(opSel){ opSel.checked = false; opSel.indeterminate = false; }
   document.getElementById('opp-tbody').innerHTML = filtered.length ? filtered.map(o=>`
-    <tr id="opp-row-${o.id}">
-      <td class="chk-col"><input type="checkbox" class="row-chk" data-id="${o.id}" onchange="onOppChk(this,'${o.id}')"></td>
-      <td style="font-size:11px;color:var(--text-muted);font-family:monospace;">${o.id}</td>
-      <td><a href="#" style="color:var(--accent);text-decoration:none;font-weight:500;" onclick="showOppDetail('${o.id}');return false;">${o.name}</a>${teamsIconHtml(o)}</td>
-      <td>${o.customer}</td>
+    <tr id="opp-row-${_h(o.id)}">
+      <td class="chk-col"><input type="checkbox" class="row-chk" data-id="${_ha(o.id)}" onchange="onOppChk(this,'${_hj(o.id)}')"></td>
+      <td style="font-size:11px;color:var(--text-muted);font-family:monospace;">${_h(o.id)}</td>
+      <td><a href="#" style="color:var(--accent);text-decoration:none;font-weight:500;" onclick="showOppDetail('${_hj(o.id)}');return false;">${_h(o.name)}</a>${teamsIconHtml(o)}</td>
+      <td>${_h(o.customer)}</td>
       <td>${stageBadge(o.stage)}</td>
       <td>
         <div style="display:flex;align-items:center;gap:5px;">
-          <div class="progress-bar"><div class="progress-fill" style="width:${o.prob}%;background:${o.prob>=70?'var(--green)':o.prob>=40?'var(--amber)':'var(--red)'}"></div></div>
-          <span style="font-size:12px;">${o.prob}%</span>
+          <div class="progress-bar"><div class="progress-fill" style="width:${Number(o.prob)||0}%;background:${o.prob>=70?'var(--green)':o.prob>=40?'var(--amber)':'var(--red)'}"></div></div>
+          <span style="font-size:12px;">${Number(o.prob)||0}%</span>
         </div>
       </td>
       <td class="fw-500 text-right">${fmt(o.amount)}</td>
       <td class="text-right" style="color:var(--text-secondary);">${fmt(o.amount*o.prob/100)}</td>
       <td>${recogBadge(o.recog)}</td>
-      <td style="font-size:12px;">${o.start||'—'}</td>
-      <td style="font-size:12px;">${o.end||'—'}</td>
+      <td style="font-size:12px;">${_h(o.start)||'—'}</td>
+      <td style="font-size:12px;">${_h(o.end)||'—'}</td>
       <td>${ownerCellHtml(o)}</td>
-      <td>${(()=>{const na=o.nextAction;if(!na?.date&&!na?.action)return '<span style="color:var(--text-muted);font-size:11px;">—</span>';const tod=new Date().toISOString().split('T')[0];const ov=na.date&&na.date<=tod;const pc={urgent:'#E24B4A',high:'#BA7517',normal:'#185FA5'}[na.priority||'normal'];return '<div style="font-size:11px;"><div style="font-weight:600;color:'+(ov?'#E24B4A':pc)+';"'+'>'+(na.date||'—')+(ov?' ⚠':'')+'</div><div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">'+(na.action||'')+'</div></div>';})()}</td>
+      <td>${(()=>{const na=o.nextAction;if(!na?.date&&!na?.action)return '<span style="color:var(--text-muted);font-size:11px;">—</span>';const tod=new Date().toISOString().split('T')[0];const ov=na.date&&na.date<=tod;const pc={urgent:'#E24B4A',high:'#BA7517',normal:'#185FA5'}[na.priority||'normal'];return '<div style="font-size:11px;"><div style="font-weight:600;color:'+(ov?'#E24B4A':pc)+';"'+'>'+_h(na.date||'—')+(ov?' ⚠':'')+'</div><div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">'+_h(na.action||'')+'</div></div>';})()}</td>
       <td>
         <div style="display:flex;gap:4px;">
-          <button class="btn btn-sm" onclick="populateOppModal(db.opportunities.find(x=>x.id==='${o.id}'));document.getElementById('modal-opp').classList.add('open');">編集</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteOpportunity('${o.id}')">×</button>
+          <button class="btn btn-sm" onclick="populateOppModal(db.opportunities.find(x=>x.id==='${_hj(o.id)}'));document.getElementById('modal-opp').classList.add('open');">編集</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteOpportunity('${_hj(o.id)}')">×</button>
         </div>
       </td>
     </tr>`).join('') : '<tr><td colspan="14"><div class="empty-state"><p>案件がありません</p></div></td></tr>';
@@ -194,8 +203,8 @@ function buildOwnerList() {
     const checked = selectedOwners === null || (selectedOwners.size > 0 && selectedOwners.has(owner));
     return `<label class="owner-filter-item">
       <input type="checkbox" ${checked ? 'checked' : ''}
-        onchange="onOwnerCheck(this, '${owner.replace(/'/g, "\'")}')">
-      <span>${owner}</span>
+        onchange="onOwnerCheck(this, '${_hj(owner)}')">
+      <span>${_h(owner)}</span>
     </label>`;
   }).join('');
 }
@@ -321,8 +330,8 @@ function buildStageList() {
     const c = stageColor[stage] || { bg: '#f3f4f6', fg: '#4b5563', border: '#d1d5db' };
     return `<label class="owner-filter-item">
       <input type="checkbox" ${checked ? 'checked' : ''}
-        onchange="onStageCheck(this, '${stage.replace(/'/g, "\\'")}')">
-      <span class="badge" style="background:${c.bg};color:${c.fg};border:1px solid ${c.border};font-size:11px;padding:2px 8px;">${stage}</span>
+        onchange="onStageCheck(this, '${_hj(stage)}')">
+      <span class="badge" style="background:${c.bg};color:${c.fg};border:1px solid ${c.border};font-size:11px;padding:2px 8px;">${_h(stage)}</span>
     </label>`;
   }).join('');
 }
