@@ -240,6 +240,25 @@ function _buildQuoteHtml() {
   // 備考行HTML
   const noteRows = notes ? notes.split('\n').map(n => `<p class="note-line">${n}</p>`).join('') : '';
 
+  // ============================================================
+  // 押印ブロック: 「代表印」選択時は代表印のみ、「会社印」選択時は会社印のみ
+  // ※ どちらか一方のみが必ず押印され、両方押印されることは無い
+  // ============================================================
+  const isDaihyo = (sealType === 'daihyo');
+  // 代表取締役名 + 代表印 — 代表印選択時のみ
+  const daihyoBlockHtml = isDaihyo
+    ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
+      + '<div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div>'
+      + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+      + buildDaihyoSealImg(55)
+      + '</span>'
+      + '</div>'
+    : '';
+  // 会社印（角印） — 会社印選択時のみ
+  const companySealHtml = isDaihyo
+    ? ''
+    : '<img src="' + COMPANY_SEAL_PNG + '" style="position:absolute;right:9px;bottom:120px;width:72px;height:72px;opacity:0.92;" alt="角印">';
+
   // 印刷用HTMLを生成
   
   const printHtml = `<!DOCTYPE html>
@@ -350,14 +369,14 @@ function saveQuoteToOpp() {
   </div>
   <div class="meta-right" style="position:relative;">
     <div class="company-name">${ci.name}</div>
-    ${sealType === 'daihyo' ? '<div style="position:relative;display:inline-block;margin:4px 0;"><div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div><span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'+buildDaihyoSealImg(55)+'</span></div>' : ''}
+    ${daihyoBlockHtml}
     ${ci.zip} ${ci.addr1}<br>
     ${ci.addr2}<br>
     TEL: ${salesTel || ci.tel}<br>
     E-Mail: ${salesEmail || ci.email}<br>
     登録番号：${ci.regNo}
     ${salesRep ? '<br>営業担当：' + salesRep : ''}
-    <img src="${COMPANY_SEAL_PNG}" style="position:absolute;right:9px;bottom:120px;width:72px;height:72px;opacity:0.92;" alt="角印">
+    ${companySealHtml}
   </div>
 </div>
 
@@ -790,6 +809,29 @@ function _buildInvoiceHtml() {
   const total    = subtotal + tax10 + tax8;
   const fmt      = v => '¥' + Math.round(v).toLocaleString();
 
+  // ============================================================
+  // 押印ブロック: 「代表印」選択時は代表印のみ、「会社印」選択時は会社印のみ
+  // ※ どちらか一方のみが必ず押印され、両方押印されることは無い
+  // ============================================================
+  const isDaihyo = (sealType === 'daihyo');
+  // 代表取締役名 + 代表印 / または 登録番号のみ — 必ずどちらか
+  const daihyoBlockHtml = isDaihyo
+    ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
+      + '<div style="font-size:9pt;color:#333;padding-right:20px;">'
+        + '代表取締役　高橋精彦<br>'
+        + '<span style="font-weight:normal;">登録番号　' + ci.regNo + '</span>'
+      + '</div>'
+      + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+        + buildDaihyoSealImg(55)
+      + '</span>'
+    + '</div>'
+    : '登録番号　' + ci.regNo + '<br>';
+  // 会社印（角印） — 会社印選択時のみ
+  // 注意: ここはテンプレートリテラルではなく文字列連結で組み立てる（${...}を含むため）
+  const companySealHtml = isDaihyo
+    ? ''
+    : '<img src="' + COMPANY_SEAL_PNG + '" style="position:absolute;right:11px;bottom:122px;width:68px;height:68px;opacity:0.92;" alt="角印">';
+
   const itemRows = items.map(it =>
     `<tr>
       <td class="center" style="font-size:9pt;">${it.date ? it.date.replace(/-(\d+)-(\d+)/, (_,m,d)=>'/'+parseInt(m)+'/'+parseInt(d)) : ''}</td>
@@ -880,24 +922,14 @@ function _buildInvoiceHtml() {
   <div class="top-right" style="position:relative;">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="4DIN" style="height:36px;width:auto;margin-bottom:3px;display:block;">' : ''}
     <div class="cname">${ci.name}</div>
-    ${sealType === 'daihyo'
-      ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
-        + '<div style="font-size:9pt;color:#333;padding-right:20px;">'
-          + '代表取締役　高橋精彦<br>'
-          + '<span style="font-weight:normal;">登録番号　' + ci.regNo + '</span>'
-        + '</div>'
-        + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
-          + buildDaihyoSealImg(55)
-        + '</span>'
-      + '</div>'
-      : '登録番号　' + ci.regNo + '<br>'}
+    ${daihyoBlockHtml}
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
     新橋駅前ビル1号館805<br>
     TEL：${ci.tel}<br>
     担当：　${owner}<br>
     E-Mail：<a href="mailto:${ownerEmail}" style="color:#1a50a0;">${ownerEmail}</a>
-    ${sealType === 'company' ? '<img src="${COMPANY_SEAL_PNG}" style="position:absolute;right:11px;bottom:122px;width:68px;height:68px;opacity:0.92;" alt="角印">' : ''}
+    ${companySealHtml}
   </div>
 </div>
 <table class="items">
@@ -1220,6 +1252,26 @@ function _buildDeliveryHtml() {
   const blankCount = Math.max(0, MAX_ROWS - items.length);
   const blankRows  = Array(blankCount).fill('<tr><td class="no"></td><td class="desc"></td><td class="center"></td><td class="right"></td><td class="right"></td></tr>').join('');
 
+  // ============================================================
+  // 押印ブロック: 「代表印」選択時は代表印のみ、「会社印」選択時は会社印のみ
+  // ※ どちらか一方のみが必ず押印され、両方押印されることは無い
+  // ============================================================
+  const isDaihyo = (sealType === 'daihyo');
+  // 会社名横の会社印（社判）— 会社印選択時のみ
+  const companySealHtml = isDaihyo
+    ? ''
+    : '<span style="position:absolute;right:-2px;top:-14px;line-height:0;">' + buildCompanySealImg(50) + '</span>';
+  // 代表取締役名 + 代表印 — 代表印選択時のみ
+  const daihyoBlockHtml = isDaihyo
+    ? '<div style="position:relative;display:inline-block;margin:4px 0;">'
+      + '<div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div>'
+      + '<span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'
+      + buildDaihyoSealImg(55)
+      + '</span>'
+      + '</div>'
+    : '';
+  const cnamePadding = isDaihyo ? '0' : '54px';
+
   return {oppId, ym, delivNo, customer, total, html: `<!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="UTF-8">
@@ -1304,12 +1356,12 @@ function _buildDeliveryHtml() {
   </div>
   <div class="top-right">
     ${logoSrc ? '<img src="'+logoSrc+'" alt="" style="height:32px;width:auto;margin-bottom:4px;display:block;">' : ''}
-    <div class="cname" style="position:relative;display:inline-block;padding-right:${sealType === 'company' ? '54px' : '0'};">
+    <div class="cname" style="position:relative;display:inline-block;padding-right:${cnamePadding};">
       ${ci.name}
-      ${sealType === 'company' ? '<span style="position:absolute;right:-2px;top:-14px;line-height:0;">'+buildCompanySealImg(50)+'</span>' : ''}
+      ${companySealHtml}
     </div>
     <div style="font-size:8.5pt;">登録番号：${ci.regNo}</div>
-    ${sealType === 'daihyo' ? '<div style="position:relative;display:inline-block;margin:4px 0;"><div style="font-size:9pt;color:#333;padding-right:20px;">代表取締役　高橋精彦</div><span style="position:absolute;right:-18px;top:50%;transform:translateY(-50%);line-height:0;">'+buildDaihyoSealImg(55)+'</span></div>' : ''}
+    ${daihyoBlockHtml}
     〒105-0004<br>
     東京都港区新橋2-20-15<br>
     新橋駅前ビル1号館805<br>
