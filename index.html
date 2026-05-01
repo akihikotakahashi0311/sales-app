@@ -1539,7 +1539,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <button class="btn btn-sm" onclick="changeMonth(-1)" title="前月" style="font-size:18px;padding:2px 12px;">‹</button>
-              <span id="monthly-month-label" style="font-size:16px;font-weight:700;min-width:130px;text-align:center;letter-spacing:0.02em;cursor:pointer;" onclick="document.getElementById('monthly-month-picker-hidden').showPicker?.() || document.getElementById('monthly-month-picker-hidden').click()"></span>
+              <span id="monthly-month-label" style="font-size:16px;font-weight:700;min-width:130px;text-align:center;letter-spacing:0.02em;cursor:pointer;" title="月を選択（入金管理・キャッシュフロー予測と連動）" onclick="document.getElementById('monthly-month-picker-hidden').showPicker?.() || document.getElementById('monthly-month-picker-hidden').click()"></span>
               <input type="month" id="monthly-month-picker-hidden" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" onchange="changeMonthPicker(this.value)">
               <input type="month" id="monthly-month-picker" style="display:none;" onchange="changeMonthPicker(this.value)">
               <button class="btn btn-sm" onclick="changeMonth(1)" title="翌月" style="font-size:18px;padding:2px 12px;">›</button>
@@ -1608,7 +1608,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <div style="display:flex;gap:6px;align-items:center;">
                 <button class="btn btn-sm" onclick="changePaymentMonth(-1)" title="前月" style="font-size:18px;padding:2px 12px;">‹</button>
-                <span id="payment-month-label" style="font-size:16px;font-weight:700;min-width:130px;text-align:center;letter-spacing:0.02em;cursor:pointer;" onclick="document.getElementById('payment-month-picker-hidden').showPicker?.() || document.getElementById('payment-month-picker-hidden').click()"></span>
+                <span id="payment-month-label" style="font-size:16px;font-weight:700;min-width:130px;text-align:center;letter-spacing:0.02em;cursor:pointer;" title="入金予定月を選択（月次管理・キャッシュフロー予測と連動）" onclick="document.getElementById('payment-month-picker-hidden').showPicker?.() || document.getElementById('payment-month-picker-hidden').click()"></span>
                 <button class="btn btn-sm" onclick="changePaymentMonth(1)"  title="翌月" style="font-size:18px;padding:2px 12px;">›</button>
                 <input type="month" id="payment-month-picker-hidden" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" onchange="changePaymentMonthPicker(this.value)">
               </div>
@@ -1622,6 +1622,10 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
               <input type="text" class="form-control" id="payment-search" placeholder="顧客・案件名検索" style="width:160px;height:32px;font-size:12px;" oninput="renderPayment()">
             </div>
           </div>
+          <!-- 基準日の注釈（CF予測との整合性のため、入金日基準で絞り込み） -->
+          <div style="padding:6px 18px 2px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary);border-bottom:1px solid var(--border-light);">
+            基準日：<strong style="color:var(--text-secondary);">入金予定日</strong>　／　選択月に入金が予定されている明細を表示します（請求は前月以前の場合あり）
+          </div>
           <!-- サマリー -->
           <div style="display:flex;gap:12px;padding:14px 20px;flex-wrap:wrap;" id="payment-summary"></div>
         </div>
@@ -1630,7 +1634,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
             <table class="report-table" style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead id="payment-thead">
                 <tr>
-                  <th style="padding:8px;text-align:left;min-width:80px;" class="sortable sort-desc" data-key="month" onclick="sortPayment('month')">対象月</th>
+                  <th style="padding:8px;text-align:left;min-width:80px;" class="sortable sort-desc" data-key="month" onclick="sortPayment('month')">請求月</th>
                   <th style="padding:8px;text-align:left;min-width:140px;" class="sortable" onclick="sortPayment('customer')">顧客</th>
                   <th style="padding:8px;text-align:left;min-width:180px;">案件名 / 担当者</th>
                   <th style="padding:8px;text-align:right;">請求額<br><span style="font-size:10px;font-weight:400;opacity:0.7;">税込</span></th>
@@ -1638,7 +1642,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                   <th style="padding:8px;text-align:right;">未回収額<br><span style="font-size:10px;font-weight:400;opacity:0.7;">税込</span></th>
                   <th style="padding:8px;text-align:center;">ステータス</th>
                   <th style="padding:8px;text-align:center;">請求日</th>
-                  <th style="padding:8px;text-align:center;">入金日</th>
+                  <th style="padding:8px;text-align:center;">入金予定日</th>
                   <th style="padding:8px;text-align:center;">操作</th>
                   <th style="padding:8px;"></th></tr>
               </thead>
@@ -1658,6 +1662,13 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
           <div class="card-header" style="flex-wrap:wrap;gap:10px;">
             <span class="card-title">月次キャッシュフロー計算書</span>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <!-- 基準月セレクタ（月次管理・入金管理と連動） -->
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button class="btn btn-sm" onclick="changeCashflowMonth(-1)" title="前月" style="font-size:18px;padding:2px 12px;">‹</button>
+                <span id="cf-month-label" style="font-size:16px;font-weight:700;min-width:130px;text-align:center;letter-spacing:0.02em;cursor:pointer;" title="基準月を選択（月次管理・入金管理と連動）" onclick="document.getElementById('cf-month-picker-hidden').showPicker?.() || document.getElementById('cf-month-picker-hidden').click()"></span>
+                <button class="btn btn-sm" onclick="changeCashflowMonth(1)" title="翌月" style="font-size:18px;padding:2px 12px;">›</button>
+                <input type="month" id="cf-month-picker-hidden" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" onchange="changeCashflowMonthPicker(this.value)">
+              </div>
               <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
                 予測期間
                 <select class="form-control" id="cf-range" style="width:100px;height:32px;font-size:12px;" onchange="renderCashflow()">
