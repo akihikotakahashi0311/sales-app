@@ -239,10 +239,12 @@ function renderPayment() {
   const targetPaymentYm = currentMonth;
 
   // 行データを生成: db.monthly の全月を走査し、入金予定月が targetPaymentYm のものを抽出
+  // ※ 入金管理は「受注済み」案件のみを対象とする（パイプライン中の案件は除外）
   const rows = [];
   Object.keys(db.monthly).forEach(billingYm => {
     const monthData = db.monthly[billingYm] || {};
     db.opportunities.forEach(o => {
+      if(o.stage !== '受注') return; // 受注済みのみ
       if(!matchesScope(o)) return;
       const m = monthData[o.id] || {};
       const billing     = m.billing || 0;
