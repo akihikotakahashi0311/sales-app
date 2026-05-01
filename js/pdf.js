@@ -31,7 +31,7 @@ function onPopupBillingTypeChange() {
   if(type === 'monthly') {
     if(dateGroup) dateGroup.style.display = 'none';
     if(nextGroup) nextGroup.style.display = 'none';
-    if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
+    if(dateHint)  dateHint.textContent = '月次請求のため、売上計上月の毎月末営業日（土日は前倒し）に自動設定されます';
     // 月次売上計上のため契約終了日を必須表示
     if(endBadge) endBadge.style.display = '';
     if(optBadge) optBadge.style.display = 'none';

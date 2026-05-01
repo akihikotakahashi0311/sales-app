@@ -2486,10 +2486,10 @@ function onBillingTypeChange() {
   const nextGroup  = document.getElementById('f-opp-next-billing-date-group');
 
   if(type === 'monthly') {
-    // 月次: 請求日は毎月末（自動）
+    // 月次: 請求日は売上計上月の毎月末営業日（自動）
     if(dateGroup) dateGroup.style.display = 'none';
     if(nextGroup) nextGroup.style.display = 'none';
-    if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
+    if(dateHint)  dateHint.textContent = '月次請求のため、売上計上月の毎月末営業日（土日は前倒し）に自動設定されます';
   } else if(type === 'milestone') {
     // マイルストーン: 初回請求日 + 次回請求日
     if(dateGroup) dateGroup.style.display = '';
@@ -2684,9 +2684,13 @@ function autoSetBillingFromOpp(opp, force=false) {
       // sales が 0 の月は請求額を設定しない（monthly は全月走査するが未入力月はスキップ）
       if(salesAmt <= 0 && !force) return;
 
-      // 各月の月末日を請求予定日として算出
+      // 各月の月末営業日を請求予定日として算出
+      // ※ 土日に該当する場合は前倒し（金曜日に設定）
       const [y, mo] = ym.split('-').map(Number);
-      const lastDay = new Date(y, mo, 0);
+      const lastDay = new Date(y, mo, 0); // mo月の末日
+      const dow = lastDay.getDay();
+      if(dow === 0)      lastDay.setDate(lastDay.getDate() - 2); // 日曜→金曜
+      else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1); // 土曜→金曜
       const billingDate = lastDay.toISOString().split('T')[0];
 
       // 請求額
@@ -2754,12 +2758,12 @@ function saveOpportunity() {
   const _billingType = document.getElementById('f-opp-billing-type')?.value || '';
   if(!_billingType) errors.push('・請求タイプ');
 
-  // 請求予定日（一括・マイルストーンは請求予定日必須、月次請求は次回請求予定日 or 請求予定日のどちらか）
+  // 請求予定日
+  // - 一括 / マイルストーン: 請求予定日が必須
+  // - 月次請求: 請求日は売上計上月の毎月末営業日に自動設定されるため、ユーザー入力は不要
   const _billingDate     = document.getElementById('f-opp-billing-date')?.value || '';
   const _nextBillingDate = document.getElementById('f-opp-next-billing-date')?.value || '';
-  if(_billingType === 'monthly') {
-    if(!_billingDate && !_nextBillingDate) errors.push('・請求予定日（月次請求の場合は請求予定日を入力してください）');
-  } else if(_billingType === 'lump' || _billingType === 'milestone') {
+  if(_billingType === 'lump' || _billingType === 'milestone') {
     if(!_billingDate) errors.push('・請求予定日');
   }
 
@@ -2810,7 +2814,20 @@ function saveOpportunity() {
     // 売上回収時期
     billingType:     document.getElementById('f-opp-billing-type')?.value || '',
     billingSite:     parseInt(document.getElementById('f-opp-billing-site')?.value || '0') || 0,
-    billingDate:     document.getElementById('f-opp-billing-date')?.value || '',
+    billingDate:     (() => {
+      // 月次請求: 契約開始月の月末営業日（土日は前倒し）を初回請求予定日として自動設定
+      const bt = document.getElementById('f-opp-billing-type')?.value || '';
+      const userInput = document.getElementById('f-opp-billing-date')?.value || '';
+      if(bt === 'monthly' && startVal) {
+        const [y, mo] = startVal.slice(0, 7).split('-').map(Number);
+        const lastDay = new Date(y, mo, 0); // 契約開始月の末日
+        const dow = lastDay.getDay();
+        if(dow === 0)      lastDay.setDate(lastDay.getDate() - 2); // 日曜→金曜
+        else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1); // 土曜→金曜
+        return lastDay.toISOString().split('T')[0];
+      }
+      return userInput;
+    })(),
     nextBillingDate: document.getElementById('f-opp-next-billing-date')?.value || '',
     paymentDue:      document.getElementById('f-opp-payment-due')?.value || '',
     billingMemo:     document.getElementById('f-opp-billing-memo')?.value.trim() || '',
