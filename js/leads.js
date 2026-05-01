@@ -1893,12 +1893,14 @@ function onRecogChange() {
     if(recog === '月額按分') endLabel.classList.add('required');
     else endLabel.classList.remove('required');
   }
-  if(recog === '月額按分') {
+  // 月額按分・進行基準: 契約期間が揃っていれば自動入力（scheduleDataが空のときのみ）
+  if(recog === '月額按分' || recog === '進行基準') {
     const amount   = parseFloat(document.getElementById('f-opp-amount')?.value) || 0;
     const startVal = document.getElementById('f-opp-start')?.value || '';
     const endVal   = document.getElementById('f-opp-end')?.value   || '';
-    if(amount > 0 && startVal && endVal) {
-      scheduleData = {};
+    // 既にscheduleDataが入っている場合（既存案件編集・手動入力済み）は上書きしない
+    const hasExistingSchedule = Object.keys(scheduleData).length > 0;
+    if(amount > 0 && startVal && endVal && !hasExistingSchedule) {
       try { autoFillSchedule(); } catch(e) { console.warn('autoFillSchedule:', e.message); }
     }
   }
@@ -1907,15 +1909,21 @@ function onRecogChange() {
 // 開始日・金額・終了日変更時: スケジュールを自動再計算
 function onScheduleParamChange() {
   const recog  = document.getElementById('f-opp-recog')?.value || '';
-  // 月額按分で金額・開始・終了が揃っていれば自動分割
-  if(recog === '月額按分') {
+  // 月額按分・進行基準で金額・開始・終了が揃っていれば自動分割
+  if(recog === '月額按分' || recog === '進行基準') {
     const amount   = parseFloat(document.getElementById('f-opp-amount')?.value) || 0;
     const startVal = document.getElementById('f-opp-start')?.value || '';
     const endVal   = document.getElementById('f-opp-end')?.value   || '';
     if(amount > 0 && startVal && endVal) {
-      scheduleData = {};      // 既存スケジュールをリセット
-      autoFillSchedule();     // 再計算
-      return;
+      // 新規作成時(opp-edit-idが空)はパラメータ変更で再計算
+      // 既存編集時はscheduleDataが空のときだけ自動入力（手動入力を保護）
+      const isNew = !document.getElementById('opp-edit-id')?.value;
+      const hasExistingSchedule = Object.keys(scheduleData).length > 0;
+      if(isNew || !hasExistingSchedule) {
+        scheduleData = {};      // 既存スケジュールをリセット
+        autoFillSchedule();     // 再計算
+        return;
+      }
     }
   }
   renderScheduleSection();
@@ -1991,10 +1999,25 @@ function renderScheduleSection() {
   // 情報テキスト
   const infoEl = document.getElementById('schedule-info-text');
   if(infoEl) {
-    const monthly = amount > 0 ? Math.round(amount / 24) : 0;
-    infoEl.innerHTML = isMonthly
-      ? `契約総額 <strong>¥${amount.toLocaleString()}万</strong> ÷ 24ヶ月 = 月額 <strong>¥${monthly.toLocaleString()}万</strong>（目安）。過去・将来の各月を個別に調整できます。`
-      : `契約総額 <strong>¥${amount.toLocaleString()}万</strong>。各月の売上金額（万円）を入力すると累計売上と進捗率を自動計算します。過去月も修正可能です。`;
+    const startDateVal = document.getElementById('f-opp-start')?.value || '';
+    const endDateVal   = document.getElementById('f-opp-end')?.value   || '';
+    const proRata      = (startDateVal && endDateVal) ? calcProRataAllocation(startDateVal, endDateVal) : [];
+    if(proRata.length > 0) {
+      const firstP = proRata[0];
+      const lastP  = proRata[proRata.length - 1];
+      const totalUnits = proRata.reduce((s, p) => s + p.units, 0);
+      const partialNote = (firstP.isPartial || lastP.isPartial)
+        ? `（初月 ${firstP.days}/${firstP.monthDays}日、最終月 ${lastP.days}/${lastP.monthDays}日の日割り）`
+        : '（全月フル）';
+      infoEl.innerHTML = isMonthly
+        ? `契約総額 <strong>¥${amount.toLocaleString()}万</strong> を契約期間 <strong>${proRata.length}ヶ月</strong>${partialNote} で日割り按分。金額入力で個別調整できます。`
+        : `契約総額 <strong>¥${amount.toLocaleString()}万</strong> を契約期間 <strong>${proRata.length}ヶ月</strong>${partialNote} で日割り按分。金額入力で％を、％入力で金額を自動計算します。`;
+    } else {
+      const monthly = amount > 0 ? Math.round(amount / 24) : 0;
+      infoEl.innerHTML = isMonthly
+        ? `契約総額 <strong>¥${amount.toLocaleString()}万</strong> ÷ 24ヶ月 = 月額 <strong>¥${monthly.toLocaleString()}万</strong>（目安）。契約期間を入力すると日割り按分されます。`
+        : `契約総額 <strong>¥${amount.toLocaleString()}万</strong>。契約期間を入力すると日割り按分されます。金額入力で％を、％入力で金額を自動計算します。`;
+    }
   }
 
   // ヘッダー
@@ -2060,6 +2083,95 @@ function addMonthKey(key, n) {
   while(nm > 12){ nm -= 12; ny++; }
   while(nm < 1) { nm += 12; ny--; }
   return ny + '-' + String(nm).padStart(2, '0');
+}
+
+// ============================================================
+// 日割り按分ヘルパー（進行基準・月額按分のデフォルト計算用）
+// ============================================================
+// 月初〜月末を1ヶ月とし、初月・最終月のみ日割り
+// 例: 2025-10-15 〜 2026-03-20
+//   10月: 17日分 / 31日 ≒ 0.5484
+//   11月〜2月: 各1.0
+//   3月: 20日分 / 31日 ≒ 0.6452
+//   合計按分単位 ≒ 5.1936 ヶ月分
+//   各月の按分額 = 契約総額 × その月の按分単位 / 合計按分単位
+//
+// 戻り値: [{ key:'YYYY-MM', units:number, days:number, monthDays:number, isPartial:boolean }, ...]
+function calcProRataAllocation(startDateStr, endDateStr) {
+  if(!startDateStr || !endDateStr) return [];
+  // YYYY-MM-DD を解析
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  if(!sy || !sm || !sd || !ey || !em || !ed) return [];
+
+  // 開始日が終了日より後の場合は空
+  const startTs = new Date(sy, sm-1, sd).getTime();
+  const endTs   = new Date(ey, em-1, ed).getTime();
+  if(startTs > endTs) return [];
+
+  const result = [];
+  // 月単位でループ
+  let curY = sy, curM = sm;
+  while(curY < ey || (curY === ey && curM <= em)) {
+    const monthDays = new Date(curY, curM, 0).getDate(); // その月の末日(=日数)
+    const isFirstMonth = (curY === sy && curM === sm);
+    const isLastMonth  = (curY === ey && curM === em);
+
+    let days, units, isPartial;
+    if(isFirstMonth && isLastMonth) {
+      // 同月内に開始・終了が収まる
+      days  = ed - sd + 1;
+      units = days / monthDays;
+      isPartial = (days < monthDays);
+    } else if(isFirstMonth) {
+      // 初月: 開始日〜月末まで
+      days  = monthDays - sd + 1;
+      units = days / monthDays;
+      isPartial = (days < monthDays);
+    } else if(isLastMonth) {
+      // 最終月: 月初〜終了日まで
+      days  = ed;
+      units = days / monthDays;
+      isPartial = (days < monthDays);
+    } else {
+      // 中間月: フル
+      days  = monthDays;
+      units = 1.0;
+      isPartial = false;
+    }
+    const key = curY + '-' + String(curM).padStart(2, '0');
+    result.push({ key, units, days, monthDays, isPartial });
+
+    // 次の月へ
+    curM++;
+    if(curM > 12) { curM = 1; curY++; }
+    // 安全装置（暴走防止）
+    if(result.length > 600) break;
+  }
+  return result;
+}
+
+// 日割り按分で各月の金額を算出（端数は最終月で調整）
+// 戻り値: [{ key, amount, units, days, monthDays, isPartial }, ...]
+function calcProRataAmounts(startDateStr, endDateStr, totalAmount) {
+  const allocations = calcProRataAllocation(startDateStr, endDateStr);
+  if(allocations.length === 0) return [];
+  const totalUnits = allocations.reduce((s, a) => s + a.units, 0);
+  if(totalUnits <= 0) return [];
+
+  let allocated = 0;
+  return allocations.map((a, i) => {
+    let amount;
+    if(i < allocations.length - 1) {
+      // 通常月: 比例配分（小数4桁まで保持）
+      amount = Math.round((totalAmount * a.units / totalUnits) * 10000) / 10000;
+      allocated += amount;
+    } else {
+      // 最終月: 端数調整
+      amount = Math.round((totalAmount - allocated) * 10000) / 10000;
+    }
+    return { ...a, amount };
+  });
 }
 
 // セル変更時
@@ -2176,52 +2288,89 @@ function autoFillSchedule() {
     if(cnt > 0) months = cnt;
   }
 
+  // 日割り按分が可能かどうか（開始日・終了日が両方揃っている場合のみ）
+  const proRataMonths = (startVal && endVal) ? calcProRataAmounts(startVal, endVal, amount) : [];
+  const useProRata    = proRataMonths.length > 0;
+  let proRataMsg = '';
+
   if(isMonthly) {
-    // 小数4桁まで対応した均等分割（端数は初月に寄せる）
-    const base  = Math.round((amount / months) * 10000) / 10000;
-    const extra = Math.round((amount - base * months) * 10000) / 10000;
-    // 範囲外をクリア
-    const endKey = addMonthKey(startKey, months);
-    Object.keys(scheduleData).forEach(k => { if(k < startKey || k >= endKey) delete scheduleData[k]; });
-    for(let i = 0; i < months; i++) {
-      const key = addMonthKey(startKey, i);
-      if(!scheduleData[key]) scheduleData[key] = {sales:0, progress:0, cumProgress:0};
-      // 端数は初月に寄せる
-      scheduleData[key].sales = i === 0 ? Math.round((base + extra) * 10000) / 10000 : base;
+    if(useProRata) {
+      // 日割り按分（初月・最終月のみ日割り、中間月はフル）
+      const endKey = addMonthKey(startKey, months);
+      Object.keys(scheduleData).forEach(k => { if(k < startKey || k >= endKey) delete scheduleData[k]; });
+      proRataMonths.forEach(p => {
+        if(!scheduleData[p.key]) scheduleData[p.key] = {sales:0, progress:0, cumProgress:0};
+        scheduleData[p.key].sales = p.amount;
+      });
+      // メッセージ用情報
+      const firstP = proRataMonths[0];
+      const lastP  = proRataMonths[proRataMonths.length - 1];
+      proRataMsg = (firstP.isPartial || lastP.isPartial)
+        ? `（日割り按分: ${proRataMonths.length}ヶ月、初月${firstP.days}/${firstP.monthDays}日、最終月${lastP.days}/${lastP.monthDays}日）`
+        : `（${proRataMonths.length}ヶ月均等分割: ¥${firstP.amount}万/月）`;
+    } else {
+      // 日付未確定 → 従来の月数均等分割（端数は初月に寄せる）
+      const base  = Math.round((amount / months) * 10000) / 10000;
+      const extra = Math.round((amount - base * months) * 10000) / 10000;
+      const endKey = addMonthKey(startKey, months);
+      Object.keys(scheduleData).forEach(k => { if(k < startKey || k >= endKey) delete scheduleData[k]; });
+      for(let i = 0; i < months; i++) {
+        const key = addMonthKey(startKey, i);
+        if(!scheduleData[key]) scheduleData[key] = {sales:0, progress:0, cumProgress:0};
+        scheduleData[key].sales = i === 0 ? Math.round((base + extra) * 10000) / 10000 : base;
+      }
+      proRataMsg = `（${months}ヶ月均等分割: ¥${base}万/月、初月 ¥${Math.round((base+extra)*10000)/10000}万）`;
     }
   } else if(isPoc) {
-    // 範囲外の古いデータをクリア
-    const endKeyPoc = addMonthKey(startKey, months);
-    Object.keys(scheduleData).forEach(k => { if(k < startKey || k >= endKeyPoc) delete scheduleData[k]; });
-    const step = 100 / months;
-    let allocatedSales = 0;
-    for(let i = 0; i < months; i++) {
-      const key = addMonthKey(startKey, i);
-      scheduleData[key] = {sales:0, progress:0, cumProgress:0, cumSales:0};
-      const cum   = Math.min(100, Math.round((i+1) * step * 10) / 10);
-      const prev  = i > 0 ? Math.min(100, Math.round(i * step * 10) / 10) : 0;
-      const diff  = cum - prev;
-      scheduleData[key].progress    = Math.round(diff * 10) / 10;
-      scheduleData[key].cumProgress = cum;
-      // 売上額: 最終月は端数調整して合計を契約総額に一致させる
-      if(i < months - 1) {
-        const salesAmt = amount > 0 ? Math.round(amount * diff / 100) : 0;
-        scheduleData[key].sales    = salesAmt;
-        allocatedSales            += salesAmt;
-      } else {
-        scheduleData[key].sales    = Math.max(0, amount - allocatedSales);
+    if(useProRata) {
+      // 日割り按分（進行基準）: 各月の売上額を日割りで決定 → 進捗率を逆算
+      const endKey = addMonthKey(startKey, months);
+      Object.keys(scheduleData).forEach(k => { if(k < startKey || k >= endKey) delete scheduleData[k]; });
+      let cumSales = 0;
+      proRataMonths.forEach(p => {
+        cumSales += p.amount;
+        const cumProg = amount > 0 ? Math.min(100, (cumSales / amount) * 100) : 0;
+        const thisProg = amount > 0 ? (p.amount / amount) * 100 : 0;
+        scheduleData[p.key] = {
+          sales:       p.amount,
+          progress:    Math.round(thisProg * 10) / 10,
+          cumProgress: Math.round(cumProg * 10) / 10,
+          cumSales:    cumSales,
+        };
+      });
+      const firstP = proRataMonths[0];
+      const lastP  = proRataMonths[proRataMonths.length - 1];
+      proRataMsg = (firstP.isPartial || lastP.isPartial)
+        ? `（進行基準・日割り按分: ${proRataMonths.length}ヶ月、初月${firstP.days}/${firstP.monthDays}日、最終月${lastP.days}/${lastP.monthDays}日）`
+        : `（進行基準・${proRataMonths.length}ヶ月均等按分 各月${(100/proRataMonths.length).toFixed(1)}%）`;
+    } else {
+      // 日付未確定 → 従来の月数均等按分
+      const endKeyPoc = addMonthKey(startKey, months);
+      Object.keys(scheduleData).forEach(k => { if(k < startKey || k >= endKeyPoc) delete scheduleData[k]; });
+      const step = 100 / months;
+      let allocatedSales = 0;
+      for(let i = 0; i < months; i++) {
+        const key = addMonthKey(startKey, i);
+        scheduleData[key] = {sales:0, progress:0, cumProgress:0, cumSales:0};
+        const cum   = Math.min(100, Math.round((i+1) * step * 10) / 10);
+        const prev  = i > 0 ? Math.min(100, Math.round(i * step * 10) / 10) : 0;
+        const diff  = cum - prev;
+        scheduleData[key].progress    = Math.round(diff * 10) / 10;
+        scheduleData[key].cumProgress = cum;
+        if(i < months - 1) {
+          const salesAmt = amount > 0 ? Math.round(amount * diff / 100) : 0;
+          scheduleData[key].sales    = salesAmt;
+          allocatedSales            += salesAmt;
+        } else {
+          scheduleData[key].sales    = Math.max(0, amount - allocatedSales);
+        }
+        scheduleData[key].cumSales = amount > 0 ? Math.round(amount * cum / 100) : 0;
       }
-      scheduleData[key].cumSales = amount > 0 ? Math.round(amount * cum / 100) : 0;
+      proRataMsg = `（進行基準: ${months}ヶ月均等按分 各月${(100/months).toFixed(1)}%）`;
     }
   }
   renderScheduleSection();
-  // 進行基準は renderScheduleSection 内で updateScheduleTotal が呼ばれる
-  const msg = isMonthly
-    ? (startVal && endVal
-        ? `自動入力しました（${months}ヶ月均等分割: ¥${base}万/月、初月 ¥${Math.round((base+extra)*10000)/10000}万）`
-        : `自動入力しました（${months}ヶ月分）`)
-    : `自動入力しました（進行基準: ${months}ヶ月均等按分 各月${(100/months).toFixed(1)}%）`;
-  toast(msg, 'success');
+  toast(`自動入力しました${proRataMsg}`, 'success');
 }
 
 // クリアボタン
