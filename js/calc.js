@@ -3,6 +3,33 @@ const MAX_AUTO_BACKUPS = 5;
 const BACKUP_KEY = 'sales_auto_backups';
 let _importData = null;
 
+// NEW-3対策: 自動バックアップ一覧の読み込みを堅牢化
+//   localStorageの値が破損(JSON以外の文字列)していた場合、JSON.parseが例外を投げ、
+//   バックアップ一覧の描画/エクスポート/復元が連鎖的に失敗していた。
+//   try/catchで吸収し、破損時は警告ログを出して空配列にフォールバック。
+//   配列でない値が入っていた場合も安全側に倒す。
+function _loadBackups() {
+  let raw;
+  try {
+    raw = _storage.getItem(BACKUP_KEY);
+  } catch(e) {
+    console.warn('[Backup] _storage.getItem 失敗:', e && e.message);
+    return [];
+  }
+  if(!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed)) {
+      console.warn('[Backup] バックアップ一覧が配列ではありません。初期化します。');
+      return [];
+    }
+    return parsed;
+  } catch(e) {
+    console.warn('[Backup] バックアップ一覧のJSONが破損しています。空に戻します:', e && e.message);
+    return [];
+  }
+}
+
 // ============================================================
 // 権限判定（Critical-1〜5対策の一部）
 // ============================================================
@@ -301,7 +328,7 @@ function createAutoBackup(showToast = true) {
     data: JSON.parse(JSON.stringify(db)),
     size: JSON.stringify(db).length
   };
-  let backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
+  let backups = _loadBackups();
   backups.unshift(newEntry);
   // 最大5世代
   if(backups.length > MAX_AUTO_BACKUPS) backups.splice(MAX_AUTO_BACKUPS);
@@ -369,7 +396,7 @@ function restoreAutoBackup(index) {
     toast('⚠️ バックアップ復元は管理者権限が必要です', 'error');
     return;
   }
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
+  const backups = _loadBackups();
   const bk = backups[index];
   if(!bk) return;
   if(!confirm(`${bk.label} のバックアップに戻しますか？\n現在のデータは失われます。`)) return;
@@ -395,7 +422,7 @@ function restoreAutoBackup(index) {
 
 // ─ 自動バックアップから個別エクスポート
 function exportAutoBackup(index) {
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
+  const backups = _loadBackups();
   const bk = backups[index];
   if(!bk) return;
   const data = { ...bk.data, exportedAt: bk.timestamp, mode: 'full' };
@@ -411,7 +438,7 @@ function exportAutoBackup(index) {
 function renderBackupHistory() {
   const el = document.getElementById('backup-history-list');
   if(!el) return;
-  const backups = JSON.parse(_storage.getItem(BACKUP_KEY) || '[]');
+  const backups = _loadBackups();
   if(!backups.length) {
     el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">バックアップ履歴はありません</p>';
     return;
@@ -514,7 +541,7 @@ function showAccessDenied(email) {
         ログインアカウント：
       </p>
       <p style="font-size:14px;font-weight:600;color:var(--accent,#2563eb);margin:0 0 24px;word-break:break-all;">
-        ${email}
+        ${_h(email || '')}
       </p>
       <p style="font-size:14px;color:var(--text-secondary,#6b6a66);margin:0 0 32px;line-height:1.6;">
         このアカウントはシステムに登録されていません。<br>

@@ -136,12 +136,33 @@ function switchMasterTab(el, tabId) {
 // CSV EXPORT
 // ============================================================
 
+// NEW-1対策: CSVセル安全化
+// 1) RFC 4180 準拠: 値が "/,/改行 を含む場合は " で囲み、内部の " を "" にエスケープ
+// 2) CSVインジェクション対策: 先頭が =/+/-/@/\t/\r の場合、Excel/Google Sheets が
+//    数式として実行する(例: =cmd|...!A1) ため、先頭にシングルクォートを挿入して無害化
+//    参考: OWASP CSV Injection
+function _csvCell(v) {
+  if(v === null || v === undefined) return '';
+  let s = String(v);
+  // 数式化攻撃を防止 (先頭文字が危険なら ' を前置)
+  if(/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  // " / , / 改行 を含む場合はクォート + 内部 " のエスケープ
+  if(/[",\r\n]/.test(s)) {
+    s = '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+// 行を組み立てるヘルパ
+function _csvRow(arr) { return arr.map(_csvCell).join(','); }
 
 function exportCSV(type) {
   let csv='', filename='';
   if(type==='opportunities') {
     csv = '案件ID,案件名,顧客,担当者,フェーズ,確度(%),契約総額(万円),加重額(万円),計上方式,開始日,終了日\n';
-    csv += db.opportunities.map(o=>`${o.id},"${o.name}","${o.customer}","${o.owner}",${o.stage},${o.prob},${o.amount},${Math.round(o.amount*o.prob/100)},${o.recog},${o.start},${o.end}`).join('\n');
+    csv += db.opportunities.map(o => _csvRow([
+      o.id, o.name, o.customer, o.owner, o.stage, o.prob, o.amount,
+      Math.round(o.amount*o.prob/100), o.recog, o.start, o.end
+    ])).join('\n');
     filename = `案件一覧_${currentMonth}.csv`;
   } else if(type==='customers') {
     csv = '顧客名,業種,セグメント,担当営業,売上合計(万円),請求合計(万円),入金合計(万円),未回収(万円)\n';
@@ -151,9 +172,12 @@ function exportCSV(type) {
       const m=db.monthly[currentMonth]?.[o.id]||{};
       byC[o.customer].sales+=m.sales||0;byC[o.customer].billing+=m.billing||0;byC[o.customer].cash+=m.cash||0;
     });
-    csv += db.customers.map(c=>{
-      const d=byC[c.name]||{sales:0,billing:0,cash:0};
-      return `"${c.name}",${c.industry},${c.segment},"${c.owner}",${d.sales},${d.billing},${d.cash},${d.billing-d.cash}`;
+    csv += db.customers.map(c => {
+      const d = byC[c.name] || {sales:0, billing:0, cash:0};
+      return _csvRow([
+        c.name, c.industry, c.segment, c.owner,
+        d.sales, d.billing, d.cash, d.billing - d.cash
+      ]);
     }).join('\n');
     filename = `顧客分析_${currentMonth}.csv`;
   }
@@ -162,9 +186,12 @@ function exportCSV(type) {
 
 function exportMonthlyCSV() {
   let csv = '案件ID,案件名,計上方式,売上計上額(万円),請求額(万円),入金額(万円),当月進捗率,累計進捗率,未回収(万円)\n';
-  csv += db.opportunities.map(o=>{
-    const m=getMonthly(o.id);
-    return `${o.id},"${o.name}",${o.recog},${m.sales},${m.billing},${m.cash},${m.progress.toFixed(1)},${m.cumProgress.toFixed(1)},${m.billing-m.cash}`;
+  csv += db.opportunities.map(o => {
+    const m = getMonthly(o.id);
+    return _csvRow([
+      o.id, o.name, o.recog, m.sales, m.billing, m.cash,
+      m.progress.toFixed(1), m.cumProgress.toFixed(1), m.billing - m.cash
+    ]);
   }).join('\n');
   downloadCSV(csv, `月次データ_${currentMonth}.csv`);
 }
