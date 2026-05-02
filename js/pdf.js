@@ -224,19 +224,43 @@ function renderPayment() {
   const statusFilter = document.getElementById('payment-status-filter')?.value || '';
   const q           = (document.getElementById('payment-search')?.value || '').toLowerCase();
 
-  // 対象月リスト: currentPaymentMonth の単月表示
-  const months = [currentPaymentMonth];
+  // ============================================================
+  // 入金管理の月割り基準: 入金予定日(paymentDate)の年月
+  // ----------------------------------------------------------
+  // 仕様:
+  // - paymentDate が設定されていれば、その年月で振り分け
+  // - 未設定の場合は nextMonthEndBizDay(billingDate || ym+'-01') で
+  //   補完した値を「実効的な入金予定日」として年月判定
+  // - 入金済(cash>=billing)も同様に paymentDate(or 補完値)基準
+  //   ※ 現スキーマでは paymentDate が「予定日 兼 実入金日」
+  //
+  // 対象月: currentPaymentMonth(=currentMonth) の単月
+  // ============================================================
+  const targetYm = currentPaymentMonth;
 
-  // 行データを生成
+  // 「実効的な入金予定月」を算出するヘルパー
+  // - paymentDate があれば paymentDate.slice(0,7)
+  // - なければ請求日(billingDate)の翌月末営業日 → その年月
+  // - billingDate もなければ ym+'-01' の翌月末営業日 → その年月
+  function _effectivePaymentYm(m, ym, billingDateFromInv) {
+    if(m.paymentDate && /^\d{4}-\d{2}/.test(m.paymentDate)) {
+      return m.paymentDate.slice(0, 7);
+    }
+    const bDate = m.billingDate || billingDateFromInv || (ym + '-01');
+    const eff = nextMonthEndBizDay(bDate);
+    return (eff && /^\d{4}-\d{2}/.test(eff)) ? eff.slice(0, 7) : ym;
+  }
+
+  // 行データを生成: 全月を走査し、実効入金予定月が targetYm のもののみ採用
   const rows = [];
-  months.forEach(ym => {
+  Object.keys(db.monthly || {}).forEach(ym => {
     const monthData = db.monthly[ym] || {};
     db.opportunities.forEach(o => {
       if(!matchesScope(o)) return;
       const m = monthData[o.id] || {};
-      const billing     = m.billing || 0;
-      const cash        = m.cash    || 0;
-      const sales       = m.sales   || 0;
+      const billing = m.billing || 0;
+      const cash    = m.cash    || 0;
+      const sales   = m.sales   || 0;
       if(sales === 0 && billing === 0 && cash === 0) return;  // データなし行は除外
 
       // ステータス判定
@@ -247,26 +271,36 @@ function renderPayment() {
       else if(billing > 0 && cash >= billing) status = 'done';
       else return;
 
-      if(statusFilter && status !== statusFilter) return;
-      if(q && !o.name.toLowerCase().includes(q) && !(o.customer||'').toLowerCase().includes(q)) return;
-
       // 請求書PDFの保存日を請求日として取得
       const invFiles = getPdfFiles(o.id, 'invoice');
       // ファイル名に年月が含まれるものを優先、なければ最新の保存日
       let billingDateFromInv = '';
       if(invFiles.length > 0) {
-        // ym（例: '2025-10'）に対応する請求書を探す
         const ymKey = ym.replace('-','');  // '202510'
         const matched = invFiles.find(f => f.name && f.name.includes(ymKey));
         const target  = matched || invFiles[invFiles.length - 1];
         if(target?.date) billingDateFromInv = target.date.split('T')[0];
       }
+
+      // 入金予定月を判定 → 表示中月と一致する行のみ採用
+      const payYm = _effectivePaymentYm(m, ym, billingDateFromInv);
+      if(payYm !== targetYm) return;
+
+      // ステータスフィルタ・検索フィルタは月マッチ後に適用
+      if(statusFilter && status !== statusFilter) return;
+      if(q && !o.name.toLowerCase().includes(q) && !(o.customer||'').toLowerCase().includes(q)) return;
+
+      // 表示用の入金予定日: 値が無ければ補完値を入れる(input value 表示用)
+      const displayPayDate = m.paymentDate
+        || nextMonthEndBizDay(m.billingDate || billingDateFromInv || (ym + '-01'));
+
       rows.push({
         ym, o, billing, cash, sales,
         uncollected: billing - cash,
         status,
         billingDate: m.billingDate || billingDateFromInv,
-        paymentDate: m.paymentDate || '',
+        paymentDate: m.paymentDate || '',          // 生値(空文字許容)
+        displayPayDate,                            // 表示用(常に値あり)
         memo:        m.paymentMemo || '',
       });
     });
@@ -352,7 +386,7 @@ function renderPayment() {
         <td style="padding:5px 8px;text-align:center;">${statusBadge(r.status)}</td>
         <td style="padding:5px 8px;text-align:center;font-size:11px;">${r.billingDate||'—'}</td>
         <td style="padding:5px 8px;text-align:center;">
-          <input type="date" value="${r.paymentDate || nextMonthEndBizDay(r.billingDate || r.ym + '-01')}" style="font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:2px 4px;width:110px;"
+          <input type="date" value="${r.displayPayDate || ''}" style="font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:2px 4px;width:110px;"
             onchange="updatePaymentDate('${r.o.id}','${r.ym}',this.value)">
         </td>
         <td style="padding:5px 8px;text-align:center;">
@@ -417,7 +451,9 @@ function updatePaymentDate(oppId, ym, date) {
   if(!db.monthly[ym][oppId]) db.monthly[ym][oppId] = {sales:0,billing:0,cash:0,progress:0,cumProgress:0};
   db.monthly[ym][oppId].paymentDate = date;
   save();
-  toast('入金日を更新しました', 'success');
+  toast('入金予定日を更新しました', 'success');
+  // 入金予定日基準で月割りしているため、変更後は表示中月と不一致になる可能性 → 再描画
+  renderPayment();
 }
 
 // 入金確認（billing == cash にする）
