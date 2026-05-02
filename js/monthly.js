@@ -489,16 +489,36 @@ const GLOBAL_SEARCH_CONFIG = {
   reports:       { placeholder: '顧客名で検索',          targetId: 'customer-search' },
 };
 
-// ページごとの検索条件を保持するストア（タブ移動しても維持）
-// ※ onGlobalSearch より前に定義する必要がある（即時保存で参照するため）
-const _searchState = {};
+// ─────────────────────────────────────────────────────────
+// グローバル検索ワード（全タブで共有）
+// 案件管理で「TEST」と打てば、月次・入金・他のタブでも「TEST」で絞り込まれる
+// localStorage で永続化（リロード・タブ閉じ・再起動しても保持）
+// ─────────────────────────────────────────────────────────
+const _SEARCH_STATE_KEY = 'salesApp_globalSearch_v2';
+
+// 起動時に localStorage から読み込み（単一文字列）
+let _globalSearchValue = (() => {
+  try {
+    return localStorage.getItem(_SEARCH_STATE_KEY) || '';
+  } catch(e) {
+    return '';
+  }
+})();
+
+// _globalSearchValue を localStorage に保存
+function _persistSearchState() {
+  try {
+    localStorage.setItem(_SEARCH_STATE_KEY, _globalSearchValue);
+  } catch(e) { /* QuotaExceeded等は無視 */ }
+}
 
 function onGlobalSearch(val) {
+  // ★ 全タブ共有: 入力された値を1つだけ保持
+  _globalSearchValue = val;
+  _persistSearchState();
+
   // 現在表示中のページの検索 input に同期して再描画
   const page = document.querySelector('.nav-item.active')?.dataset?.page || '';
-
-  // ★ タイピングのたびに即時保存（タブ移動しても確実に維持）
-  if(page) _searchState[page] = val;
 
   // reports ページは「顧客別」タブが選択中のときのみ customer-search に同期
   if(page === 'reports') {
@@ -538,16 +558,7 @@ function navigate(page) {
       return;
     }
   }
-  // 離れる前に現在ページの検索値を保存
-  // ※ onGlobalSearch でも即時保存しているが、念のため離脱時にも上書き保存
-  const prevPage = document.querySelector('.nav-item.active')?.dataset?.page;
-  if(prevPage) {
-    const gIn = document.getElementById('global-search-input');
-    // グローバル検索窓の現在値を最優先で保存（_searchState は onGlobalSearch で更新済みのはずだが）
-    if(gIn && GLOBAL_SEARCH_CONFIG[prevPage]) {
-      _searchState[prevPage] = gIn.value;
-    }
-  }
+  // ※ onGlobalSearch で _globalSearchValue は常に最新化されているので、離脱時の保存処理は不要
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -557,10 +568,10 @@ function navigate(page) {
   // モバイルではページ遷移後にサイドバーを閉じる
   if(window.innerWidth <= 768) closeSidebar();
 
-  // グローバル検索窓: 保存済みの値を復元（なければ空）
+  // ★ グローバル検索窓: 全タブ共有の値を復元（どのタブでも同じワード）
   const gInput = document.getElementById('global-search-input');
   const cfg = GLOBAL_SEARCH_CONFIG[page];
-  const savedVal = _searchState[page] || '';
+  const savedVal = _globalSearchValue || '';
   if(gInput) {
     gInput.value = savedVal;
     gInput.placeholder = cfg ? cfg.placeholder : '検索...';
