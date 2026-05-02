@@ -56,6 +56,8 @@ let _currentAccount = null;
 let _odLastETag = null;
 // BUG-12: 未保存変更があるかのフラグ（beforeunload警告で参照）
 let _odHasUnsavedChanges = false;
+// BUG-19: 自動マージ用 - 最後にOneDriveと同期した時点のdbの完全コピー（3-wayマージのbase）
+let _baseSnapshot = null;
 // BUG-11: OneDrive側の安全な単一アップロードサイズ上限（ヘッダ等の余裕含めて4MB）
 const ONEDRIVE_SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
 
@@ -81,6 +83,321 @@ function _sanitizeDbSchema(raw) {
 // BUG-10: 指数バックオフ付きスリープ
 function _odSleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+// ============================================================
+// BUG-19: 自動マージ機構 (3-way merge)
+// ============================================================
+// 競合(412)発生時、リモート最新を取得し、ローカル変更分のみを適用して
+// 再保存することで、他ユーザーの編集を失わずに自分の編集も保持する。
+//
+// 設計方針:
+//   _baseSnapshot = 最後にOneDriveと同期した時点のdb（3-wayマージのbase）
+//   localDb       = 現在のメモリ上のdb（baseに対して自分が加えた変更を含む）
+//   remoteDb      = 競合時に再取得した最新db（baseに対して他人が加えた変更を含む）
+//   merged        = remoteDb をベースに、ローカル変更分のみ上書きしたもの
+// ============================================================
+
+// dbのディープコピー（pdfFiles等の重いフィールドも含む完全コピー）
+function _takeSnapshot(srcDb) {
+  if(!srcDb) return null;
+  try {
+    return JSON.parse(JSON.stringify(srcDb));
+  } catch(e) {
+    console.error('[Merge] スナップショット作成失敗:', e.message);
+    return null;
+  }
+}
+
+// 2つのレコードが「内容として等しい」か判定（参照比較ではなくJSON比較）
+function _recordEquals(a, b) {
+  if(a === b) return true;
+  if(!a || !b) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch(e) {
+    return false;
+  }
+}
+
+// 配列をid→オブジェクトのMapに変換（マージ高速化用）
+function _arrayToMap(arr, idKey) {
+  const m = new Map();
+  if(!Array.isArray(arr)) return m;
+  for(const item of arr) {
+    if(item && item[idKey] != null) m.set(String(item[idKey]), item);
+  }
+  return m;
+}
+
+// 配列の3-wayマージ
+//   - ローカル追加(base無/local有/remote無) → 採用
+//   - ローカル更新(base有/local変更あり/remote無変更) → ローカル採用
+//   - ローカル削除(base有/local無/remote無変更) → 削除維持
+//   - リモート追加(base無/local無/remote有) → 採用
+//   - リモート更新(base有/local無変更/remote変更) → リモート採用
+//   - リモート削除(base有/local無変更/remote無) → 削除反映
+//   - 両方更新 → リモート採用(警告)
+//   - ローカル削除 + リモート更新 → リモート版を残す(更新を尊重)
+//   - ローカル更新 + リモート削除 → ローカル版を復活(編集を尊重)
+//   - 両方削除 → 削除
+function _mergeArrayById(baseArr, localArr, remoteArr, idKey, label) {
+  const baseMap   = _arrayToMap(baseArr,   idKey);
+  const localMap  = _arrayToMap(localArr,  idKey);
+  const remoteMap = _arrayToMap(remoteArr, idKey);
+
+  // 全idの和集合
+  const allIds = new Set([...baseMap.keys(), ...localMap.keys(), ...remoteMap.keys()]);
+  const result = [];
+  const stats = { keptLocal:0, keptRemote:0, kept:0, deleted:0, conflict:0 };
+
+  for(const id of allIds) {
+    const base   = baseMap.get(id);
+    const local  = localMap.get(id);
+    const remote = remoteMap.get(id);
+
+    const localChanged  = base ? !_recordEquals(base, local)  : (local !== undefined);
+    const remoteChanged = base ? !_recordEquals(base, remote) : (remote !== undefined);
+    const localDeleted  = base !== undefined && local  === undefined;
+    const remoteDeleted = base !== undefined && remote === undefined;
+
+    if(localDeleted && remoteDeleted) {
+      // 両方削除
+      stats.deleted++;
+      continue;
+    }
+    if(localDeleted && !remoteChanged) {
+      // ローカルのみ削除、リモートは変更なし → 削除確定
+      stats.deleted++;
+      continue;
+    }
+    if(remoteDeleted && !localChanged) {
+      // リモートのみ削除、ローカルは変更なし → 削除確定
+      stats.deleted++;
+      continue;
+    }
+    if(localDeleted && remoteChanged) {
+      // ローカル削除 + リモート更新 → リモート版を残す（更新を尊重）
+      result.push(remote);
+      stats.keptRemote++;
+      continue;
+    }
+    if(remoteDeleted && localChanged) {
+      // リモート削除 + ローカル更新 → ローカル版を復活
+      result.push(local);
+      stats.keptLocal++;
+      continue;
+    }
+    // ここから「両方存在する」or「片方のみ追加」のケース
+    if(local && remote) {
+      if(localChanged && remoteChanged) {
+        // 両方更新 → リモート優先（最後の書き込み勝ち的にリモートが「新しい状態」）
+        // 注意: ローカルの変更は失われる可能性があるが、希少ケース
+        result.push(remote);
+        stats.conflict++;
+        console.warn(`[Merge] ${label} id=${id} 両方更新 → リモート採用`);
+      } else if(localChanged) {
+        result.push(local);
+        stats.keptLocal++;
+      } else if(remoteChanged) {
+        result.push(remote);
+        stats.keptRemote++;
+      } else {
+        // どちらも変更なし
+        result.push(remote);
+        stats.kept++;
+      }
+    } else if(local) {
+      // ローカルのみに存在 → 追加
+      result.push(local);
+      stats.keptLocal++;
+    } else if(remote) {
+      // リモートのみに存在 → 追加
+      result.push(remote);
+      stats.keptRemote++;
+    }
+  }
+
+  console.info(`[Merge] ${label}:`, stats);
+  return result;
+}
+
+// オブジェクト(マップ)型データの3-wayマージ（monthly, pdfFiles, pdfRefs等）
+// キー単位で配列マージと同じロジックを適用
+function _mergeMapByKey(baseObj, localObj, remoteObj, label) {
+  const base   = (baseObj   && typeof baseObj   === 'object') ? baseObj   : {};
+  const local  = (localObj  && typeof localObj  === 'object') ? localObj  : {};
+  const remote = (remoteObj && typeof remoteObj === 'object') ? remoteObj : {};
+
+  const allKeys = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)]);
+  const result = {};
+  const stats = { keptLocal:0, keptRemote:0, kept:0, deleted:0, conflict:0 };
+
+  for(const k of allKeys) {
+    const bv = base[k];
+    const lv = local[k];
+    const rv = remote[k];
+
+    const localChanged  = (k in base) ? !_recordEquals(bv, lv) : (k in local);
+    const remoteChanged = (k in base) ? !_recordEquals(bv, rv) : (k in remote);
+    const localDeleted  = (k in base) && !(k in local);
+    const remoteDeleted = (k in base) && !(k in remote);
+
+    if(localDeleted && remoteDeleted) { stats.deleted++; continue; }
+    if(localDeleted && !remoteChanged) { stats.deleted++; continue; }
+    if(remoteDeleted && !localChanged) { stats.deleted++; continue; }
+    if(localDeleted && remoteChanged) { result[k] = rv; stats.keptRemote++; continue; }
+    if(remoteDeleted && localChanged) { result[k] = lv; stats.keptLocal++; continue; }
+
+    if((k in local) && (k in remote)) {
+      if(localChanged && remoteChanged) {
+        result[k] = rv;
+        stats.conflict++;
+        console.warn(`[Merge] ${label} key=${k} 両方更新 → リモート採用`);
+      } else if(localChanged) {
+        result[k] = lv; stats.keptLocal++;
+      } else if(remoteChanged) {
+        result[k] = rv; stats.keptRemote++;
+      } else {
+        result[k] = rv; stats.kept++;
+      }
+    } else if(k in local) {
+      result[k] = lv; stats.keptLocal++;
+    } else if(k in remote) {
+      result[k] = rv; stats.keptRemote++;
+    }
+  }
+
+  console.info(`[Merge] ${label}:`, stats);
+  return result;
+}
+
+// 配列の和集合マージ（pdfDeletionQueue, lockedMonths など重複除去で済むもの）
+function _mergeArrayUnion(baseArr, localArr, remoteArr, label) {
+  const set = new Set();
+  const out = [];
+  const push = (arr) => {
+    if(!Array.isArray(arr)) return;
+    for(const item of arr) {
+      const key = (typeof item === 'object') ? JSON.stringify(item) : String(item);
+      if(!set.has(key)) { set.add(key); out.push(item); }
+    }
+  };
+  // ローカル → リモートの順で追加（衝突時は先に入った方が残る、内容同一なら影響なし）
+  push(localArr);
+  push(remoteArr);
+  console.info(`[Merge] ${label}: union → ${out.length}件`);
+  return out;
+}
+
+// メインのマージ関数
+//   base   : _baseSnapshot（最後に同期した時点のdb）
+//   local  : 現在のdb（baseから自分が加えた変更を含む）
+//   remote : OneDriveから再取得したdb（baseから他人が加えた変更を含む）
+// returns : マージ済みdb
+function _mergeDb(baseDb, localDb, remoteDb) {
+  const base   = baseDb   || {};
+  const local  = localDb  || {};
+  const remote = remoteDb || {};
+
+  // ベースとなるリモートをコピーし、各フィールドを個別マージで上書き
+  const merged = JSON.parse(JSON.stringify(remote));
+
+  // ID付き配列のマージ
+  const arraysWithId = [
+    ['opportunities', 'id'],
+    ['leads',         'id'],
+    ['customers',     'id'],
+    ['orgs',          'id'],
+    ['users',         'id'],
+    ['alerts',        'id'],
+  ];
+  for(const [key, idKey] of arraysWithId) {
+    merged[key] = _mergeArrayById(base[key], local[key], remote[key], idKey, key);
+  }
+
+  // オブジェクト型(キー→値)のマージ
+  const mapKeys = ['monthly', 'pdfFiles', 'pdfRefs'];
+  for(const key of mapKeys) {
+    merged[key] = _mergeMapByKey(base[key], local[key], remote[key], key);
+  }
+
+  // 設定系: リモート優先（ただしローカルで変更されていればローカルを優先）
+  if(local.settings && !_recordEquals(base.settings, local.settings)) {
+    merged.settings = local.settings;
+  } // それ以外はremoteのまま
+
+  // 和集合マージ（順序より存在の有無が大事なもの）
+  merged.pdfDeletionQueue = _mergeArrayUnion(
+    base.pdfDeletionQueue, local.pdfDeletionQueue, remote.pdfDeletionQueue, 'pdfDeletionQueue'
+  );
+  merged.lockedMonths = _mergeArrayUnion(
+    base.lockedMonths, local.lockedMonths, remote.lockedMonths, 'lockedMonths'
+  );
+
+  return merged;
+}
+
+// OneDriveから現在のリモートdbを取得（dbに反映せず、純粋に返すだけ）
+// 主に競合時の再取得用
+async function _fetchRemoteDb() {
+  if(!_odSyncEnabled) return { db: null, etag: null };
+  _graphToken = await _getGraphToken();
+  const res = await fetch(
+    `${getGraphEndpoint()}/content`,
+    { headers: { Authorization: `Bearer ${_graphToken}` } }
+  );
+  if(res.status === 404) return { db: null, etag: null };
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const etag = res.headers.get('ETag') || res.headers.get('etag') || null;
+  const buffer = await res.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let remoteDb;
+
+  if(typeof isEncryptedBytes === 'function' && isEncryptedBytes(bytes)) {
+    remoteDb = await decryptJson(bytes);
+  } else {
+    remoteDb = JSON.parse(new TextDecoder().decode(bytes));
+  }
+  remoteDb = _sanitizeDbSchema(remoteDb);
+  delete remoteDb._savedAt;
+  return { db: remoteDb, etag };
+}
+
+// 412発生時の自動マージ処理
+//   1. リモート最新を再取得
+//   2. _baseSnapshot をベースにローカル/リモートを3-wayマージ
+//   3. dbをmergedで上書き、_odLastETagを更新、_baseSnapshotは更新しない
+//      （まだ保存していないので、保存成功時に更新される）
+//   4. UI再描画
+// returns : true=マージ成功、false=失敗（フォールバックを促す）
+async function _attemptAutoMerge() {
+  if(!_baseSnapshot) {
+    console.warn('[Merge] _baseSnapshotが無いためマージ不可（初回読込前？）');
+    return false;
+  }
+  // リモート再取得
+  const { db: remoteDb, etag: remoteEtag } = await _fetchRemoteDb();
+  if(!remoteDb) {
+    console.warn('[Merge] リモート再取得失敗');
+    return false;
+  }
+  // マージ実行
+  const merged = _mergeDb(_baseSnapshot, db, remoteDb);
+  // 反映
+  db = _sanitizeDbSchema(merged);
+  if(!db.pdfFiles) db.pdfFiles = {};
+  if(!db.pdfRefs) db.pdfRefs = {};
+  if(!db.pdfDeletionQueue) db.pdfDeletionQueue = [];
+  // ETagを最新に更新（次回PUTのIf-Matchで使用）
+  _odLastETag = remoteEtag;
+  // baseもリモート時点に進める（マージ後の状態に対する次の差分計算用）
+  _baseSnapshot = _takeSnapshot(remoteDb);
+  // UI再描画（dbが書き換わったので）
+  if(typeof refreshCurrentPage === 'function') refreshCurrentPage();
+  console.info('[Merge] 自動マージ完了');
+  return true;
 }
 
 // BUG-12: 未保存フラグの管理
@@ -273,6 +590,8 @@ async function loadFromOneDrive() {
     if(!db.pdfFiles) db.pdfFiles = {};
     if(!db.pdfRefs) db.pdfRefs = {};
     if(!db.pdfDeletionQueue) db.pdfDeletionQueue = [];
+    // BUG-19: マージ用のbaseスナップショットを記録（読み込んだ直後の状態）
+    _baseSnapshot = _takeSnapshot(db);
     // 先にユーザーを確定させてから描画（描画がcurrentUserを参照するため）
     initUserSession();
     // 現在表示中のページを再描画（全ページ共通）
@@ -339,6 +658,7 @@ async function saveToOneDrive() {
       const ok = await _saveLargeFileToOneDrive(body, contentType);
       if(ok) {
         _storage.setItem('sales_last_save', now);
+        _baseSnapshot = _takeSnapshot(db); // BUG-19: 次回マージ用のbaseを更新
         clearUnsavedChanges();
         return true;
       }
@@ -366,10 +686,32 @@ async function saveToOneDrive() {
 
         // 412 Precondition Failed → 競合発生
         if(res.status === 412) {
-          console.warn('[OneDrive] 412 競合検出（他端末で更新あり）');
-          // ユーザーに通知してリロードを促す
+          console.warn('[OneDrive] 412 競合検出 → 自動マージを試行');
+          // BUG-19: 競合時の自動マージ
+          // attempt < maxRetries-1 のときのみマージ試行（最終回はフォールバック）
+          if(attempt < maxRetries - 1) {
+            try {
+              const mergeOk = await _attemptAutoMerge();
+              if(mergeOk) {
+                // マージ成功 → 新しいdb・新しい_odLastETagで再PUT
+                // body を作り直す必要がある（dbが変わったので）
+                const newDataToEncrypt = { ...db, _savedAt: new Date().toISOString() };
+                if(typeof encryptJson === 'function') {
+                  body = await encryptJson(newDataToEncrypt);
+                  contentType = 'application/octet-stream';
+                } else {
+                  body = JSON.stringify(newDataToEncrypt);
+                  contentType = 'application/json';
+                }
+                console.info('[OneDrive] マージ成功 → 再保存を試行');
+                continue; // ループ先頭へ（新しい_odLastETagで再PUT）
+              }
+            } catch(mergeErr) {
+              console.error('[OneDrive] 自動マージ失敗:', mergeErr.message);
+            }
+          }
+          // マージ失敗 or 最終回 → 従来通りユーザー通知
           toast('⚠️ 他のユーザーがOneDrive上のデータを更新しました。最新データを読み直してから再保存してください', 'error');
-          // 競合検出時は未保存フラグを立てて自動破棄しない
           markUnsavedChanges();
           return false;
         }
@@ -383,8 +725,9 @@ async function saveToOneDrive() {
           throw new Error(`HTTP ${res.status}`);
         }
 
-        // 成功 → 新しいETagを記録
+        // 成功 → 新しいETagを記録 + スナップショット更新
         _odLastETag = res.headers.get('ETag') || res.headers.get('etag') || _odLastETag;
+        _baseSnapshot = _takeSnapshot(db); // BUG-19: 次回マージ用のbaseを更新
         _storage.setItem('sales_last_save', now);
         clearUnsavedChanges();
         return true;
