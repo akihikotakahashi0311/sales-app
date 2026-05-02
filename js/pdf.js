@@ -257,6 +257,11 @@ function renderPayment() {
     const monthData = db.monthly[ym] || {};
     db.opportunities.forEach(o => {
       if(!matchesScope(o)) return;
+      // 入金管理は「受注済み案件のみ」を対象とする（HTML注釈と仕様一致）
+      // ・リード/提案中/見積提出/交渉中: まだ受注前 → 入金管理の対象外
+      // ・失注: 案件が消滅 → 入金管理の対象外
+      // 例外的に過去 monthly に billing/cash データが残っていても表示しない
+      if(o.stage !== '受注') return;
       const m = monthData[o.id] || {};
       const billing = m.billing || 0;
       const cash    = m.cash    || 0;
