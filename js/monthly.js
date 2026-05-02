@@ -489,9 +489,17 @@ const GLOBAL_SEARCH_CONFIG = {
   reports:       { placeholder: '顧客名で検索',          targetId: 'customer-search' },
 };
 
+// ページごとの検索条件を保持するストア（タブ移動しても維持）
+// ※ onGlobalSearch より前に定義する必要がある（即時保存で参照するため）
+const _searchState = {};
+
 function onGlobalSearch(val) {
   // 現在表示中のページの検索 input に同期して再描画
   const page = document.querySelector('.nav-item.active')?.dataset?.page || '';
+
+  // ★ タイピングのたびに即時保存（タブ移動しても確実に維持）
+  if(page) _searchState[page] = val;
+
   // reports ページは「顧客別」タブが選択中のときのみ customer-search に同期
   if(page === 'reports') {
     const repCust = document.getElementById('rep-customer');
@@ -509,9 +517,6 @@ function onGlobalSearch(val) {
     target.dispatchEvent(new Event('input'));
   }
 }
-
-// ページごとの検索条件を保持するストア（タブ移動しても維持）
-const _searchState = {};
 
 function navigate(page) {
   // ★ Critical-3対策: マスタ画面のアクセス制御
@@ -534,12 +539,13 @@ function navigate(page) {
     }
   }
   // 離れる前に現在ページの検索値を保存
+  // ※ onGlobalSearch でも即時保存しているが、念のため離脱時にも上書き保存
   const prevPage = document.querySelector('.nav-item.active')?.dataset?.page;
   if(prevPage) {
-    const prevCfg = GLOBAL_SEARCH_CONFIG[prevPage];
-    if(prevCfg) {
-      const prevTarget = document.getElementById(prevCfg.targetId);
-      _searchState[prevPage] = prevTarget ? prevTarget.value : '';
+    const gIn = document.getElementById('global-search-input');
+    // グローバル検索窓の現在値を最優先で保存（_searchState は onGlobalSearch で更新済みのはずだが）
+    if(gIn && GLOBAL_SEARCH_CONFIG[prevPage]) {
+      _searchState[prevPage] = gIn.value;
     }
   }
 
@@ -559,7 +565,7 @@ function navigate(page) {
     gInput.value = savedVal;
     gInput.placeholder = cfg ? cfg.placeholder : '検索...';
   }
-  // ページ固有の検索 input にも復元
+  // ページ固有の検索 input にも復元（描画前に値だけセット。フィルタは render 関数が読み取る）
   if(cfg) {
     const target = document.getElementById(cfg.targetId);
     if(target) target.value = savedVal;
