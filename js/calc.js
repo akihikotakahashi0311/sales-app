@@ -233,14 +233,17 @@ function confirmImport() {
             db.alerts = db.alerts.filter(a => a.oppId !== id);
           }
           // PDFファイル参照を削除（型は事前にPDF_TYPESがあれば使用、なければ全キー走査）
+          // P3-3対策: 実際のキー形式は "pdf_<id>_<type>" のため、prefix を pdf_ から始める必要がある
+          //   旧コード: k.startsWith(id + '_') は何にもマッチせず削除されなかった
+          const pdfPrefix = `pdf_${id}_`;
           if(db.pdfFiles) {
             Object.keys(db.pdfFiles).forEach(k => {
-              if(k.startsWith(id + '_') || k.startsWith(id + ':')) delete db.pdfFiles[k];
+              if(k.startsWith(pdfPrefix)) delete db.pdfFiles[k];
             });
           }
           if(db.pdfRefs) {
             Object.keys(db.pdfRefs).forEach(k => {
-              if(k.startsWith(id + '_') || k.startsWith(id + ':')) delete db.pdfRefs[k];
+              if(k.startsWith(pdfPrefix)) delete db.pdfRefs[k];
             });
           }
         });
@@ -257,8 +260,10 @@ function confirmImport() {
     //   - users: ユーザー一覧（roleフィールドが含まれるため）
     //   - orgs: 組織マスタ（権限スコープに影響）
     //   現状のUIでは「ユーザーも復元する」チェックがないため、保守的にスキップする
+    // P9-4対策: 月次確定情報（monthlyLocked / lockedMonths）も保護
+    //   復元によって過去の月次確定が解除されると、決算データの再改竄を許してしまう
     const skip = ['exportedAt', 'mode', 'storeKey'];
-    const PROTECTED_KEYS = ['users','orgs'];
+    const PROTECTED_KEYS = ['users','orgs','monthlyLocked','lockedMonths'];
     const overwriteUsers = (typeof _importIncludeUsers !== 'undefined') ? !!_importIncludeUsers : false;
     Object.keys(_importData).forEach(k => {
       if(skip.includes(k)) return;

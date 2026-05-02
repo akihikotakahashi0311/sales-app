@@ -2774,9 +2774,17 @@ function loadScheduleFromMonthly(oppId, startVal, recog) {
 // スケジュールデータを月次DBに書き込む
 function writeScheduleToMonthly(oppId, startVal, recog) {
   if(recog !== '月額按分' && recog !== '進行基準') return;
+  // P4-2対策: 月次ロックされている月への書き込みを禁止
+  //   案件編集経由でのバイパスを塞ぐ。BUG-19 の月次ロック保護をこの関数でも適用する。
+  const lockedSkipped = [];
   // scheduleData に入っている全月を書き込む（範囲に関わらず）
   Object.entries(scheduleData).forEach(([key, sd]) => {
     if(!sd) return;
+    // ロック済み月はスキップ（既存の月次データを維持）
+    if(typeof isMonthLocked === 'function' && isMonthLocked(key)) {
+      lockedSkipped.push(key);
+      return;
+    }
     if(!db.monthly[key]) db.monthly[key] = {};
     if(!db.monthly[key][oppId]) {
       db.monthly[key][oppId] = {sales:0, billing:0, cash:0, progress:0, cumProgress:0, locked:false, updatedBy:''};
@@ -2788,6 +2796,13 @@ function writeScheduleToMonthly(oppId, startVal, recog) {
     m.cumProgress = sd.cumProgress || 0;
     if(sd.cumSales !== undefined) m.cumSales = sd.cumSales;
   });
+  // ロックでスキップした月を通知（あれば）
+  if(lockedSkipped.length > 0) {
+    console.info(`[writeScheduleToMonthly] ${lockedSkipped.length}ヶ月ロック済みのためスキップ: ${lockedSkipped.join(', ')}`);
+    if(typeof toast === 'function') {
+      toast(`⚠️ 確定済みの ${lockedSkipped.length} ヶ月分は更新されませんでした`, 'info');
+    }
+  }
 }
 
 // 請求タイプ変更ハンドラー

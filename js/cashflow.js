@@ -921,7 +921,7 @@ function showCfBreakdown(ym) {
     sortedCustomers.forEach(([customer, data]) => {
       html += `<div style="margin-bottom:12px;border:1px solid var(--border-light);border-radius:6px;overflow:hidden;">`;
       html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg-tertiary);border-bottom:1px solid var(--border-light);">`;
-      html += `<span style="font-weight:600;font-size:13px;">${customer}</span>`;
+      html += `<span style="font-weight:600;font-size:13px;">${_h(customer)}</span>`;
       html += `<span style="font-weight:600;font-size:13px;color:var(--green);">${fmt(data.total)}<span style="font-size:11px;color:var(--text-muted);margin-left:4px;">(${data.items.length}件)</span></span>`;
       html += `</div>`;
       html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
@@ -944,7 +944,7 @@ function showCfBreakdown(ym) {
         const btLabel = {'monthly':'月次','lump':'一括','milestone':'MS'}[item.billingType] || item.recog || '—';
         const siteLabel = item.billingSite > 0 ? `${item.billingSite}日` : '翌月末';
         html += `<tr style="border-top:1px solid var(--border-light);">`;
-        html += `<td style="padding:6px 10px;">${item.name}${weightNote}</td>`;
+        html += `<td style="padding:6px 10px;">${_h(item.name)}${weightNote}</td>`;
         html += `<td style="padding:6px 10px;text-align:center;"><span class="badge badge-blue">${btLabel}</span></td>`;
         html += `<td style="padding:6px 10px;text-align:center;font-size:11px;">${siteLabel}</td>`;
         html += `<td style="padding:6px 10px;text-align:center;">${monthLabel(item.billingYm)}</td>`;
@@ -1121,10 +1121,10 @@ function renderContractDelay() {
                           : r.diffDays < 0 ? 'color:var(--green);font-weight:600;' : '';
           return `<tr style="border-bottom:1px solid var(--border-light);">
             <td style="padding:7px 8px;">
-              <a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${r.o.id}');return false;">${r.o.name}</a>
+              <a href="#" style="color:var(--accent);text-decoration:none;" onclick="showOppDetail('${_hj(r.o.id)}');return false;">${_h(r.o.name)}</a>
             </td>
-            <td style="padding:7px 8px;font-size:11px;">${r.o.customer||'—'}</td>
-            <td style="padding:7px 8px;font-size:11px;">${r.o.owner||'—'}</td>
+            <td style="padding:7px 8px;font-size:11px;">${_h(r.o.customer||'—')}</td>
+            <td style="padding:7px 8px;font-size:11px;">${_h(r.o.owner||'—')}</td>
             <td style="padding:7px 8px;text-align:center;">${r.o.plannedStart}</td>
             <td style="padding:7px 8px;text-align:center;">${r.o.contractDate}</td>
             <td style="padding:7px 8px;text-align:center;${diffColor}">${r.diffDays > 0 ? '+' : ''}${r.diffDays}日</td>

@@ -363,10 +363,11 @@ function renderPayment() {
     const groupId = 'pg-' + cust.replace(/[^a-zA-Z0-9]/g, '_');
     const allDone = custRows.every(r => r.status === 'done');
     // 顧客ヘッダー行
+    // P1-1対策: 顧客名は他ユーザーが入力する値のため、XSS防止に _h() でエスケープ
     const headerRow = `
       <tr class="payment-group-header" onclick="togglePaymentGroup('${groupId}')" style="cursor:pointer;background:var(--bg-secondary);border-top:2px solid var(--border-medium);">
         <td colspan="2" style="padding:8px 10px;font-weight:700;font-size:13px;">
-          <span id="${groupId}-icon" style="margin-right:6px;font-size:11px;">▼</span>${cust}
+          <span id="${groupId}-icon" style="margin-right:6px;font-size:11px;">▼</span>${_h(cust)}
         </td>
         <td style="padding:8px 10px;font-size:11px;color:var(--text-muted);">${custRows.length}件</td>
         <td style="padding:8px 10px;text-align:right;font-weight:600;">${fmt(sumBilling)}<div style="font-size:10px;color:var(--text-muted);font-weight:400;">税込${fmt(Math.round(sumBilling*1.1*10000)/10000)}</div></td>
@@ -375,11 +376,12 @@ function renderPayment() {
         <td colspan="5" style="padding:8px 10px;text-align:center;">${allDone?'<span class="badge badge-green">完了</span>':''}</td>
       </tr>`;
     // 案件詳細行
+    // P1-1対策: ユーザー入力値（owner / name / id / ym）を XSS防止のため _h() / _hj() でエスケープ
     const detailRows = custRows.map(r => `
       <tr class="payment-group-row" data-group="${groupId}" style="${r.status==='done'?'opacity:0.6':''}background:var(--bg-primary);">
         <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">${monthLabel(r.ym)}</td>
-        <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${r.o.owner||'—'}</td>
-        <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${r.o.id}');return false;">${r.o.name}</a></td>
+        <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${_h(r.o.owner||'—')}</td>
+        <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${_hj(r.o.id)}');return false;">${_h(r.o.name)}</a></td>
         <td style="padding:5px 8px;text-align:right;font-size:12px;">${fmt(r.billing)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.billing*1.1*10000)/10000)}</div></td>
         <td style="padding:5px 8px;text-align:right;font-size:12px;color:var(--green);">${fmt(r.cash)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.cash*1.1*10000)/10000)}</div></td>
         <td style="padding:5px 8px;text-align:right;font-size:12px;color:${r.uncollected>0?'var(--red-dark)':'var(--text-muted)'};">${fmt(r.uncollected)}<div style="font-size:10px;color:var(--text-muted);">税込${fmt(Math.round(r.uncollected*1.1*10000)/10000)}</div></td>
@@ -387,11 +389,11 @@ function renderPayment() {
         <td style="padding:5px 8px;text-align:center;font-size:11px;">${r.billingDate||'—'}</td>
         <td style="padding:5px 8px;text-align:center;">
           <input type="date" value="${r.displayPayDate || ''}" style="font-size:11px;border:1px solid var(--border-medium);border-radius:4px;padding:2px 4px;width:110px;"
-            onchange="updatePaymentDate('${r.o.id}','${r.ym}',this.value)">
+            onchange="updatePaymentDate('${_hj(r.o.id)}','${_hj(r.ym)}',this.value)">
         </td>
         <td style="padding:5px 8px;text-align:center;">
           ${r.status!=='done' ? `<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;background:var(--green);color:#fff;border:none;"
-            onclick="markAsPaid('${r.o.id}','${r.ym}')">入金確認</button>` : ''}
+            onclick="markAsPaid('${_hj(r.o.id)}','${_hj(r.ym)}')">入金確認</button>` : ''}
         </td>
         <td></td>
       </tr>`).join('');
