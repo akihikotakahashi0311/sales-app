@@ -1632,12 +1632,13 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
                 <button class="btn btn-sm" onclick="changePaymentMonth(1)"  title="翌月" style="font-size:18px;padding:2px 12px;">›</button>
                 <input type="month" id="payment-month-picker-hidden" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" onchange="changePaymentMonthPicker(this.value)">
               </div>
-              <select class="form-control" id="payment-status-filter" style="width:110px;height:32px;font-size:12px;" onchange="renderPayment()">
+              <select class="form-control" id="payment-status-filter" style="width:140px;height:32px;font-size:12px;" onchange="renderPayment()">
                 <option value="">全ステータス</option>
-                <option value="unpaid">請求予定</option>
-                <option value="billed">請求済・未入金</option>
+                <option value="unbilled">未請求</option>
+                <option value="unbilled_unpaid">未請求・未入金</option>
+                <option value="billed_unpaid">請求済・未入金</option>
                 <option value="partial">一部入金</option>
-                <option value="done">入金済</option>
+                <option value="paid">入金済</option>
               </select>
               <input type="text" class="form-control" id="payment-search" placeholder="顧客・案件名検索" style="width:160px;height:32px;font-size:12px;" oninput="renderPayment()">
             </div>
