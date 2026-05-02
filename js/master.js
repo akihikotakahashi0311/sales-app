@@ -2,27 +2,36 @@
 // 共通: 月次ステータス判定（月次管理・入金管理 両画面で使用）
 // ============================================================
 // 当該月の請求書PDFが保存されているか判定（モジュールスコープ）
-// 判定基準（いずれか1つでも満たせば「発行済」）：
-//   1. monthly[ym][oppId].billingDate に当月日付が記録されている
-//      （案件保存時に自動セットされるため、最も確実な判定基準）
-//   2. 案件のinvoiceフォルダに当月年月(YYYYMM)を含むファイル名のPDFが存在
-//   3. 案件のinvoiceフォルダ内のいずれかのファイルが当月内に保存されている
+// ----------------------------------------------------------
+// 判定基準（厳密化版・Step追加修正）：
+//   案件の invoice フォルダ内に、当月分と判断できる PDF ファイルが存在するか
+//   ※ 旧基準にあった「monthly[ym].billingDate が当月」は使わない。
+//      理由: billingDate は案件編集モーダルや autoSetBillingFromOpp 等で
+//            PDF 未保存でも自動セットされるため、PDF 発行の証拠にならない。
+//
+// 採用する判定（いずれか1つでも満たせば「発行済」）：
+//   (a) ファイル名に当月の YYYYMM (例: '202510') が含まれる
+//       → 命名規則 '{顧客}様_ご請求書_4DIN-{YYYYMMDD}-{oppId}.html' により
+//          作成日の年月でマッチする。「作成月 = 請求月」として扱う仕様。
+//   (b) ファイルの保存日(date) が当月内
+//       → 旧形式・外部アップロード PDF など (a) でマッチしないものをカバー
+//   (c) ファイルメタに ym フィールドがあり当月と一致（将来拡張用）
+// ============================================================
 function hasInvoiceIssuedForMonth(oppId, ym) {
-  if(typeof getPdfFiles !== 'function') return true; // PDF管理機能無効時は従来通り
-  // 1) 月次データのbillingDate
-  const md = (db.monthly||{})[ym] || {};
-  const m  = md[oppId] || {};
-  if(m.billingDate) {
-    const bdYm = String(m.billingDate).slice(0, 7);
-    if(bdYm === ym) return true;
-  }
-  // 2) ファイル名に YYYYMM が含まれる請求書PDF
+  if(typeof getPdfFiles !== 'function') return true; // PDF管理機能無効時は従来動作
   const files = getPdfFiles(oppId, 'invoice') || [];
-  const ymKey = ym.replace('-', '');
-  if(files.some(f => f && f.name && f.name.includes(ymKey))) return true;
-  // 3) 当月内に保存(date)された請求書PDF
-  if(files.some(f => f && f.date && String(f.date).slice(0, 7) === ym)) return true;
-  return false;
+  if(files.length === 0) return false;  // ファイルが1つもない → 未発行
+  const ymKey = ym.replace('-', '');     // '202510'
+  return files.some(f => {
+    if(!f) return false;
+    // (a) ファイル名にYYYYMM
+    if(f.name && f.name.includes(ymKey)) return true;
+    // (b) ファイル保存日が当月内
+    if(f.date && String(f.date).slice(0, 7) === ym) return true;
+    // (c) メタデータの ym
+    if(f.ym && f.ym === ym) return true;
+    return false;
+  });
 }
 
 // ============================================================
