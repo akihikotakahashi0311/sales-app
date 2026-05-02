@@ -1,3 +1,104 @@
+// ============================================================
+// 共通: 月次ステータス判定（月次管理・入金管理 両画面で使用）
+// ============================================================
+// 当該月の請求書PDFが保存されているか判定（モジュールスコープ）
+// 判定基準（いずれか1つでも満たせば「発行済」）：
+//   1. monthly[ym][oppId].billingDate に当月日付が記録されている
+//      （案件保存時に自動セットされるため、最も確実な判定基準）
+//   2. 案件のinvoiceフォルダに当月年月(YYYYMM)を含むファイル名のPDFが存在
+//   3. 案件のinvoiceフォルダ内のいずれかのファイルが当月内に保存されている
+function hasInvoiceIssuedForMonth(oppId, ym) {
+  if(typeof getPdfFiles !== 'function') return true; // PDF管理機能無効時は従来通り
+  // 1) 月次データのbillingDate
+  const md = (db.monthly||{})[ym] || {};
+  const m  = md[oppId] || {};
+  if(m.billingDate) {
+    const bdYm = String(m.billingDate).slice(0, 7);
+    if(bdYm === ym) return true;
+  }
+  // 2) ファイル名に YYYYMM が含まれる請求書PDF
+  const files = getPdfFiles(oppId, 'invoice') || [];
+  const ymKey = ym.replace('-', '');
+  if(files.some(f => f && f.name && f.name.includes(ymKey))) return true;
+  // 3) 当月内に保存(date)された請求書PDF
+  if(files.some(f => f && f.date && String(f.date).slice(0, 7) === ym)) return true;
+  return false;
+}
+
+// ============================================================
+// 月次ステータス判定（6段階）
+// ----------------------------------------------------------
+// 仕様（ユーザー定義）:
+//   - 当月の請求額に記載あり          → 未請求・未入金
+//   - 当月の請求額に記載あり＋同額の請求書が発行・保存 → 請求済・未入金
+//   - 入金管理で入金確認ボタンが押された → 入金済
+// 加えて、アプリ側でカバーする3パターン:
+//   - 売上計上済み(sales>0) かつ 請求額未入力(billing=0) → 未請求
+//   - 一部入金(請求額>入金額>0)                          → 一部入金
+//   - 売上0かつ請求額0                                   → 未着手
+// ----------------------------------------------------------
+// 戻り値: { code, label, badgeClass, badgeHtml, title }
+//   code:        'idle' | 'unbilled' | 'unbilled_unpaid' | 'billed_unpaid' | 'partial' | 'paid'
+//   label:       バッジに表示するテキスト
+//   badgeClass:  badge-gray / badge-amber / badge-red / badge-green
+//   badgeHtml:   <span class="badge ...">ラベル</span> 形式の完成HTML
+//   title:       バッジに付ける tooltip（補足説明）
+// ============================================================
+function getInvoiceStatus(oppId, ym) {
+  const m = ((db.monthly||{})[ym]||{})[oppId] || {};
+  const sales   = Number(m.sales)   || 0;
+  const billing = Number(m.billing) || 0;
+  const cash    = Number(m.cash)    || 0;
+  const invIssued = hasInvoiceIssuedForMonth(oppId, ym);
+
+  // 1. 入金済（最優先: 請求額以上の入金がある）
+  if(billing > 0 && cash >= billing) {
+    return {
+      code: 'paid', label: '入金済', badgeClass: 'badge-green',
+      title: '入金確認済み',
+      badgeHtml: '<span class="badge badge-green">入金済</span>'
+    };
+  }
+  // 2. 一部入金（請求額あり＋入金一部あり、PDFの有無は問わない）
+  if(billing > 0 && cash > 0 && cash < billing) {
+    return {
+      code: 'partial', label: '一部入金', badgeClass: 'badge-amber',
+      title: `請求額 ¥${billing}万 / 入金額 ¥${cash}万`,
+      badgeHtml: `<span class="badge badge-amber" title="請求額 ¥${billing}万 / 入金額 ¥${cash}万">一部入金</span>`
+    };
+  }
+  // 3. 請求済・未入金（請求額あり＋PDF発行済＋入金0）
+  if(billing > 0 && invIssued && cash === 0) {
+    return {
+      code: 'billed_unpaid', label: '請求済・未入金', badgeClass: 'badge-red',
+      title: '請求書発行済み・入金待ち',
+      badgeHtml: '<span class="badge badge-red">請求済・未入金</span>'
+    };
+  }
+  // 4. 未請求・未入金（請求額あり＋PDF未発行）
+  if(billing > 0 && !invIssued) {
+    return {
+      code: 'unbilled_unpaid', label: '未請求・未入金', badgeClass: 'badge-amber',
+      title: '請求額は登録されていますが、請求書PDFが発行・保存されていません',
+      badgeHtml: '<span class="badge badge-amber" title="請求額は登録されていますが、請求書PDFが発行・保存されていません">未請求・未入金</span>'
+    };
+  }
+  // 5. 未請求（売上計上済み＋請求額未入力）
+  if(sales > 0 && billing === 0) {
+    return {
+      code: 'unbilled', label: '未請求', badgeClass: 'badge-amber',
+      title: '売上計上済みですが、請求額が未入力です',
+      badgeHtml: '<span class="badge badge-amber" title="売上計上済みですが、請求額が未入力です">未請求</span>'
+    };
+  }
+  // 6. 未着手（fallback: 売上0かつ請求額0、または上記いずれにも該当しないレアケース）
+  return {
+    code: 'idle', label: '未着手', badgeClass: 'badge-gray',
+    title: '',
+    badgeHtml: '<span class="badge badge-gray">未着手</span>'
+  };
+}
+
 function renderMonthly() {
   const label = monthLabel(currentMonth);
   document.getElementById('monthly-period-badge').textContent = label;
@@ -25,29 +126,8 @@ function renderMonthly() {
     lockBtn.className = 'btn btn-primary';
   }
 
-  // ── 当該月の請求書PDFが保存されているか判定するヘルパー ──
-  // 判定基準（いずれか1つでも満たせば「発行済」）：
-  //   1. monthly[ym][oppId].billingDate に当月日付が記録されている
-  //      （案件保存時に自動セットされるため、最も確実な判定基準）
-  //   2. 案件のinvoiceフォルダに当月年月(YYYYMM)を含むファイル名のPDFが存在
-  //   3. 案件のinvoiceフォルダ内のいずれかのファイルが当月内に保存されている
-  function hasInvoiceIssuedForMonth(oppId, ym) {
-    if(typeof getPdfFiles !== 'function') return true; // PDF管理機能無効時は従来通り
-    // 1) 月次データのbillingDate
-    const md = (db.monthly||{})[ym] || {};
-    const m  = md[oppId] || {};
-    if(m.billingDate) {
-      const bdYm = String(m.billingDate).slice(0, 7);
-      if(bdYm === ym) return true;
-    }
-    // 2) ファイル名に YYYYMM が含まれる請求書PDF
-    const files = getPdfFiles(oppId, 'invoice') || [];
-    const ymKey = ym.replace('-', '');
-    if(files.some(f => f && f.name && f.name.includes(ymKey))) return true;
-    // 3) 当月内に保存(date)された請求書PDF
-    if(files.some(f => f && f.date && String(f.date).slice(0, 7) === ym)) return true;
-    return false;
-  }
+  // ── 当月分の請求書PDF発行判定は、トップレベルの hasInvoiceIssuedForMonth() を使用 ──
+  // ── ステータス判定（6段階）は、トップレベルの getInvoiceStatus() を使用 ──
 
   let totalSales=0, totalBilling=0, totalCash=0;
   const prevKey = prevMonthKey(currentMonth);
@@ -151,23 +231,9 @@ function renderMonthly() {
     const m = getMonthly(o.id);
     totalSales += m.sales; totalBilling += m.billing; totalCash += m.cash;
     const uncollected = m.billing - m.cash;
-    // 当月分の請求書PDFが発行・保存されているか
-    const invIssued = hasInvoiceIssuedForMonth(o.id, currentMonth);
-    let statusBadge = '';
-    if(m.sales > 0 && m.billing === 0) {
-      statusBadge = '<span class="badge badge-amber">未請求</span>';
-    } else if(m.billing > 0 && !invIssued) {
-      // 請求額が入力されていても請求書PDFが未保存なら「未請求」扱い
-      statusBadge = '<span class="badge badge-amber" title="請求額は登録されていますが、請求書PDFが発行・保存されていません">未請求</span>';
-    } else if(m.billing > 0 && m.cash === 0) {
-      statusBadge = '<span class="badge badge-red">未入金</span>';
-    } else if(m.cash > 0 && m.cash >= m.billing) {
-      statusBadge = '<span class="badge badge-green">入金済</span>';
-    } else if(m.billing > 0) {
-      statusBadge = '<span class="badge badge-amber">一部入金</span>';
-    } else {
-      statusBadge = '<span class="badge badge-gray">未着手</span>';
-    }
+    // ステータス判定: 共通関数 getInvoiceStatus() を使用（6段階）
+    //   入金済 / 一部入金 / 請求済・未入金 / 未請求・未入金 / 未請求 / 未着手
+    const statusBadge = getInvoiceStatus(o.id, currentMonth).badgeHtml;
     const isPoc = o.recog === '進行基準';
     const dis = locked ? 'disabled' : '';
     // 契約終了日との残日数でハイライト色を決定

@@ -263,13 +263,12 @@ function renderPayment() {
       const sales   = m.sales   || 0;
       if(sales === 0 && billing === 0 && cash === 0) return;  // データなし行は除外
 
-      // ステータス判定
-      let status = 'none';
-      if(billing === 0 && sales > 0) status = 'unpaid';
-      else if(billing > 0 && cash === 0) status = 'billed';
-      else if(billing > 0 && cash > 0 && cash < billing) status = 'partial';
-      else if(billing > 0 && cash >= billing) status = 'done';
-      else return;
+      // ステータス判定: 共通関数 getInvoiceStatus() を使用（6段階）
+      // code: 'idle' | 'unbilled' | 'unbilled_unpaid' | 'billed_unpaid' | 'partial' | 'paid'
+      const statusInfo = getInvoiceStatus(o.id, ym);
+      const status = statusInfo.code;
+      // 'idle'(未着手) は入金管理の表示対象外
+      if(status === 'idle') return;
 
       // 請求書PDFの保存日を請求日として取得
       const invFiles = getPdfFiles(o.id, 'invoice');
@@ -287,7 +286,18 @@ function renderPayment() {
       if(payYm !== targetYm) return;
 
       // ステータスフィルタ・検索フィルタは月マッチ後に適用
-      if(statusFilter && status !== statusFilter) return;
+      // フィルタ値: HTMLの option value は新コード（unbilled / unbilled_unpaid /
+      //   billed_unpaid / partial / paid）に統一済み（Step 5）。
+      //   旧値（unpaid / billed / done）が万一残っていた場合の後方互換マップも保持。
+      if(statusFilter) {
+        const LEGACY_MAP = {
+          unpaid:  ['unbilled', 'unbilled_unpaid'],   // 旧「請求予定」
+          billed:  ['billed_unpaid'],                  // 旧「請求済・未入金」
+          done:    ['paid'],                           // 旧「入金済」
+        };
+        const allowed = LEGACY_MAP[statusFilter] || [statusFilter];
+        if(!allowed.includes(status)) return;
+      }
       if(q && !o.name.toLowerCase().includes(q) && !(o.customer||'').toLowerCase().includes(q)) return;
 
       // 表示用の入金予定日: 値が無ければ補完値を入れる(input value 表示用)
@@ -325,7 +335,8 @@ function renderPayment() {
   const totalBilling     = rows.reduce((s, r) => s + r.billing, 0);
   const totalCash        = rows.reduce((s, r) => s + r.cash, 0);
   const totalUncollected = rows.reduce((s, r) => s + r.uncollected, 0);
-  const billedCount      = rows.filter(r => r.status === 'billed').length;
+  // 未入金件数 = 「請求済・未入金」のみ（一部入金は除く）
+  const billedCount      = rows.filter(r => r.status === 'billed_unpaid').length;
   document.getElementById('payment-summary').innerHTML = `
     <div class="metric-card blue"><div class="metric-label">請求総額</div><div class="metric-value">${fmt(totalBilling)}</div></div>
     <div class="metric-card green"><div class="metric-label">入金済</div><div class="metric-value">${fmt(totalCash)}</div></div>
@@ -333,13 +344,22 @@ function renderPayment() {
     <div class="metric-card amber"><div class="metric-label">未入金件数</div><div class="metric-value">${billedCount}件</div></div>
   `;
 
-  // ステータスバッジ
-  const statusBadge = s => ({
-    unpaid:  '<span class="badge badge-amber">未請求</span>',
-    billed:  '<span class="badge badge-red">未入金</span>',
-    partial: '<span class="badge badge-amber">一部入金</span>',
-    done:    '<span class="badge badge-green">入金済</span>',
-  }[s] || '');
+  // ステータスバッジ: 共通関数 getInvoiceStatus() の badgeHtml を使用（6段階）
+  // 月次管理画面と完全に同じバッジが表示される
+  const statusBadge = code => {
+    // rows[].status は code 文字列なので、対応する badgeHtml を返す
+    // 一意な対応のため、行データの ym/oppId から再判定するのではなく
+    // code → badgeHtml のマップを生成する
+    const map = {
+      paid:            '<span class="badge badge-green">入金済</span>',
+      partial:         '<span class="badge badge-amber">一部入金</span>',
+      billed_unpaid:   '<span class="badge badge-red">請求済・未入金</span>',
+      unbilled_unpaid: '<span class="badge badge-amber" title="請求額は登録されていますが、請求書PDFが発行・保存されていません">未請求・未入金</span>',
+      unbilled:        '<span class="badge badge-amber" title="売上計上済みですが、請求額が未入力です">未請求</span>',
+      idle:            '<span class="badge badge-gray">未着手</span>',
+    };
+    return map[code] || '';
+  };
 
   // テーブル描画
   // 顧客でグループ化
@@ -361,7 +381,7 @@ function renderPayment() {
     const sumCash       = custRows.reduce((s, r) => s + r.cash, 0);
     const sumUncollected = custRows.reduce((s, r) => s + r.uncollected, 0);
     const groupId = 'pg-' + cust.replace(/[^a-zA-Z0-9]/g, '_');
-    const allDone = custRows.every(r => r.status === 'done');
+    const allDone = custRows.every(r => r.status === 'paid');
     // 顧客ヘッダー行
     // P1-1対策: 顧客名は他ユーザーが入力する値のため、XSS防止に _h() でエスケープ
     const headerRow = `
@@ -378,7 +398,7 @@ function renderPayment() {
     // 案件詳細行
     // P1-1対策: ユーザー入力値（owner / name / id / ym）を XSS防止のため _h() / _hj() でエスケープ
     const detailRows = custRows.map(r => `
-      <tr class="payment-group-row" data-group="${groupId}" style="${r.status==='done'?'opacity:0.6':''}background:var(--bg-primary);">
+      <tr class="payment-group-row" data-group="${groupId}" style="${r.status==='paid'?'opacity:0.6':''}background:var(--bg-primary);">
         <td style="padding:5px 8px 5px 28px;white-space:nowrap;font-size:11px;">${monthLabel(r.ym)}</td>
         <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${_h(r.o.owner||'—')}</td>
         <td style="padding:5px 8px;"><a href="#" style="color:var(--accent);text-decoration:none;font-size:11px;" onclick="showOppDetail('${_hj(r.o.id)}');return false;">${_h(r.o.name)}</a></td>
@@ -392,7 +412,7 @@ function renderPayment() {
             onchange="updatePaymentDate('${_hj(r.o.id)}','${_hj(r.ym)}',this.value)">
         </td>
         <td style="padding:5px 8px;text-align:center;">
-          ${r.status!=='done' ? `<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;background:var(--green);color:#fff;border:none;"
+          ${r.status!=='paid' ? `<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;background:var(--green);color:#fff;border:none;"
             onclick="markAsPaid('${_hj(r.o.id)}','${_hj(r.ym)}')">入金確認</button>` : ''}
         </td>
         <td></td>

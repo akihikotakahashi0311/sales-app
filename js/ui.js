@@ -359,8 +359,12 @@ function autoGenerateAlerts() {
   const newAlerts   = [];
 
   // ──────────────────────────────────────────────
-  // A. 月次データ：売上計上済未請求 / 請求済未入金
+  // A. 月次データ：売上計上済・未請求 / 未請求・未入金 / 請求済・未入金
   //    期日 = 該当月（YM）の月末日を基準とする
+  //    ステータス判定は共通関数 getInvoiceStatus() に統一（Step 6）
+  //      - 'unbilled'         → AUTO-NB（売上計上済・未請求）
+  //      - 'unbilled_unpaid'  → AUTO-UNB（未請求・未入金：請求額あるがPDF未発行）
+  //      - 'billed_unpaid'    → AUTO-NI（請求済・未入金：PDF発行済かつ入金待ち）
   // ──────────────────────────────────────────────
   // 当月以前の月のみ対象（未来月の売上計上済・未請求は除外）
   const _curYm = today.slice(0, 7); // 'YYYY-MM'
@@ -373,7 +377,13 @@ function autoGenerateAlerts() {
     const ymDate = _monthEnd.toISOString().split('T')[0];
     db.opportunities.forEach(o => {
       const m = monthData[o.id] || {};
-      if(m.sales>0 && (m.billing===0 || m.billing===undefined || m.billing===null)) {
+      // 共通ステータス判定（getInvoiceStatus が未定義の環境では従来動作にフォールバック）
+      const code = (typeof getInvoiceStatus === 'function')
+        ? getInvoiceStatus(o.id, ym).code
+        : null;
+
+      // ── AUTO-NB: 売上計上済・未請求（sales>0 かつ billing=0） ──
+      if(code === 'unbilled' || (code === null && m.sales>0 && (m.billing===0 || m.billing===undefined || m.billing===null))) {
         const id = `AUTO-NB-${ym}-${o.id}`;
         if(!existingIds.has(id)) newAlerts.push({
           id, type:'warning', title:'売上計上済・未請求',
@@ -381,7 +391,21 @@ function autoGenerateAlerts() {
           date: ymDate, dismissed:false, oppId: o.id
         });
       }
-      if(m.billing>0 && (m.cash===0 || m.cash===undefined || m.cash===null)) {
+
+      // ── AUTO-UNB: 未請求・未入金(請求額あるがPDF未発行)★Step 6 新規追加 ──
+      if(code === 'unbilled_unpaid') {
+        const id = `AUTO-UNB-${ym}-${o.id}`;
+        if(!existingIds.has(id)) newAlerts.push({
+          id, type:'warning', title:'未請求・未入金',
+          detail:`${o.name}（${ym}）— ¥${(m.billing||0).toLocaleString()}万円 ※請求書PDF未発行（${o.owner||'担当不明'}）`,
+          date: ymDate, dismissed:false, oppId: o.id
+        });
+      }
+
+      // ── AUTO-NI: 請求済・未入金(PDF発行済かつ入金待ち) ──
+      // Step 6: 旧ロジック「billing>0 && cash===0」から「ステータス=billed_unpaid」に変更
+      // PDF未発行の場合は AUTO-UNB として別アラートになる
+      if(code === 'billed_unpaid' || (code === null && m.billing>0 && (m.cash===0 || m.cash===undefined || m.cash===null))) {
         const id = `AUTO-NI-${ym}-${o.id}`;
         if(!existingIds.has(id)) newAlerts.push({
           id, type:'danger', title:'請求済・未入金',
@@ -484,16 +508,24 @@ function autoGenerateAlerts() {
   });
 
   // ──────────────────────────────────────────────
-  // F. 請求予定日間近なのに請求書未発行
-  //    billingDate が設定済み && billing === 0 && 請求予定日が7日以内
+  // F. 請求予定日間近なのに請求書PDF未発行
+  //    Step 6 修正: 旧ロジック「billing===0 かつ請求予定日が7日以内」
+  //                 →「請求書PDF未発行 かつ請求予定日が7日以内」に変更
+  //    請求額(billing)の有無は問わない。PDFが未発行であれば対象。
+  //    判定は共通関数 hasInvoiceIssuedForMonth() に統一。
   // ──────────────────────────────────────────────
   const _todayDate = new Date(today);
   Object.entries(db.monthly || {}).forEach(([ym, monthData]) => {
-    // 未来月のみ対象（過去月は別のアラートで対応）
     Object.entries(monthData || {}).forEach(([oppId, m]) => {
       if(!m.billingDate) return;          // 請求予定日が未設定はスキップ
-      if(m.billing > 0) return;           // 請求済みはスキップ
       if(m.locked) return;                // 月次締め済みはスキップ
+      // PDF発行済みはスキップ（共通関数で判定）
+      // hasInvoiceIssuedForMonth が未定義の環境では従来動作にフォールバック
+      if(typeof hasInvoiceIssuedForMonth === 'function') {
+        if(hasInvoiceIssuedForMonth(oppId, ym)) return;
+      } else {
+        if(m.billing > 0) return;          // フォールバック: 旧ロジック
+      }
       const o = db.opportunities.find(x => x.id === oppId);
       if(!o) return;
       const bDate = new Date(m.billingDate);
