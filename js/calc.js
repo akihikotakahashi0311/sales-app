@@ -181,7 +181,11 @@ function importBackup(input) {
 // インポートデータのスキーマ検証（不正なら配列/エラーメッセージを返す）
 function _validateImportSchema(data) {
   const errors = [];
-  if(!data || typeof data !== 'object') {
+  // F-7: 配列ルート検出を追加
+  //   typeof [] === 'object' なので、Array.isArray() で明示的に弾く必要がある。
+  //   配列ルートのままだと「配列に対する 'opportunities' in data」が常にfalseとなり、
+  //   検証が無効化されたまま全項目素通りで復元処理に進んでしまう。
+  if(!data || typeof data !== 'object' || Array.isArray(data)) {
     errors.push('JSONルートがオブジェクトではありません');
     return errors;
   }

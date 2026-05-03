@@ -256,18 +256,40 @@ function _buildQuoteHtml() {
   // 日付フォーマット
   const dateStr = qDate ? qDate.replace(/-/g, '/') : '';
 
-  // 明細行HTML
+  // ============================================================
+  // F-8: PDF生成テンプレートのXSS対策
+  // ============================================================
+  // 顧客名・件名・備考・明細名等にスクリプトタグや属性インジェクションが
+  // 含まれていた場合、生成されたPDF/HTMLを開いた時に実行されてしまう。
+  // 対策: テンプレートに埋め込む全ユーザー入力を _h() で HTMLエスケープし、
+  //       JS文字列に埋め込むものは _hj() で JSエスケープする。
+  // ============================================================
+  const safeCustomer   = _h(customer);
+  const safeSubject    = _h(subject);
+  const safeOwner      = _h(owner);
+  const safeSalesRep   = _h(salesRep);
+  const safeSalesEmail = _h(salesEmail);
+  const safeSalesTel   = _h(salesTel);
+  const safeQNo        = _h(qNo);
+  const safeValid      = _h(valid);
+  const safePayment    = _h(payment);
+  const safeDelivery   = _h(delivery);
+  // JS文字列リテラル（var QUOTE_OPP_ID = "..."）に埋め込む値は _hj で
+  const safeJsOppId    = _hj(oppId);
+  const safeJsQNo      = _hj(qNo);
+
+  // 明細行HTML（it.name はユーザー入力なのでエスケープ必須）
   const itemRows = items.map(it => `
     <tr>
       <td class="center">${it.no}</td>
-      <td>${it.isOpt ? '※' : ''}${it.name}</td>
+      <td>${it.isOpt ? '※' : ''}${_h(it.name)}</td>
       <td class="center">1</td>
       <td class="right">${Math.round(it.price).toLocaleString()}</td>
       <td class="right">${Math.round(it.price).toLocaleString()}</td>
     </tr>`).join('');
 
-  // 備考行HTML
-  const noteRows = notes ? notes.split('\n').map(n => `<p class="note-line">${n}</p>`).join('') : '';
+  // 備考行HTML（notes はユーザー入力なのでエスケープ必須）
+  const noteRows = notes ? notes.split('\n').map(n => `<p class="note-line">${_h(n)}</p>`).join('') : '';
 
   // ============================================================
   // 押印ブロック: 「代表印」選択時は代表印のみ、「会社印」選択時は会社印のみ
@@ -349,8 +371,8 @@ function _buildQuoteHtml() {
 </head><body>
 <!-- 印刷ボタン（印刷時は非表示） -->
 <scr'+'ipt>
-var QUOTE_OPP_ID = "${oppId}";
-var QUOTE_NO     = "${qNo}";
+var QUOTE_OPP_ID = "${safeJsOppId}";
+var QUOTE_NO     = "${safeJsQNo}";
 function saveQuoteToOpp() {
   var btn = document.getElementById("btn-save-quote");
   if(btn) { btn.disabled = true; btn.textContent = "保存中..."; }
@@ -395,30 +417,30 @@ function saveQuoteToOpp() {
 <!-- 宛先・自社情報 -->
 <div class="meta-row">
   <div class="meta-left">
-    <div class="customer">${customer} 御中</div>
-    <div class="subject">件名：${subject}</div>
+    <div class="customer">${safeCustomer} 御中</div>
+    <div class="subject">件名：${safeSubject}</div>
   </div>
   <div class="meta-right" style="position:relative;">
     <div class="company-name">${ci.name}</div>
     ${daihyoBlockHtml}
     ${isDaihyo ? `${ci.zip}<br>${ci.addr1}` : `${ci.zip} ${ci.addr1}`}<br>
     ${ci.addr2}<br>
-    TEL: ${salesTel || ci.tel}<br>
-    E-Mail: ${salesEmail || ci.email}<br>
+    TEL: ${safeSalesTel || ci.tel}<br>
+    E-Mail: ${safeSalesEmail || ci.email}<br>
     登録番号：${ci.regNo}
-    ${salesRep ? '<br>営業担当：' + salesRep : ''}
+    ${safeSalesRep ? '<br>営業担当：' + safeSalesRep : ''}
     ${companySealHtml}
   </div>
 </div>
 
 <!-- 見積情報 -->
 <div class="info-box">
-  <div class="info-cell"><div class="lbl">見積番号</div><div class="val">${qNo}</div></div>
+  <div class="info-cell"><div class="lbl">見積番号</div><div class="val">${safeQNo}</div></div>
   <div class="info-cell"><div class="lbl">見積日</div><div class="val">${dateStr}</div></div>
-  <div class="info-cell"><div class="lbl">担当者</div><div class="val">${salesRep || owner}</div></div>
-  <div class="info-cell"><div class="lbl">有効期限</div><div class="val">${valid}</div></div>
-  <div class="info-cell"><div class="lbl">支払条件</div><div class="val">${payment}</div></div>
-  <div class="info-cell"><div class="lbl">納期</div><div class="val">${delivery}</div></div>
+  <div class="info-cell"><div class="lbl">担当者</div><div class="val">${safeSalesRep || safeOwner}</div></div>
+  <div class="info-cell"><div class="lbl">有効期限</div><div class="val">${safeValid}</div></div>
+  <div class="info-cell"><div class="lbl">支払条件</div><div class="val">${safePayment}</div></div>
+  <div class="info-cell"><div class="lbl">納期</div><div class="val">${safeDelivery}</div></div>
 </div>
 
 <!-- 明細 -->
@@ -841,6 +863,20 @@ function _buildInvoiceHtml() {
   const fmt      = v => '¥' + Math.round(v).toLocaleString();
 
   // ============================================================
+  // F-8: PDF生成テンプレートのXSS対策（請求書）
+  // ユーザー入力は全て _h() でHTMLエスケープしてから埋め込む。
+  // 注意: 関数の return オブジェクトの oppId/invNo/customer/subject は
+  //       HTMLとして使われないため raw 値のまま返す（呼び出し側が必要に応じて処理）
+  // ============================================================
+  const safeCustomer   = _h(customer);
+  const safeSubject    = _h(subject);
+  const safeOwner      = _h(owner);
+  const safeInvNo      = _h(invNo);
+  const safeOwnerEmail = _h(ownerEmail);
+  const safeJsOppId    = _hj(oppId);
+  const safeJsInvNo    = _hj(invNo);
+
+  // ============================================================
   // 押印ブロック: 「代表印」選択時は代表印のみ、「会社印」選択時は会社印のみ
   // ※ どちらか一方のみが必ず押印され、両方押印されることは無い
   // ============================================================
@@ -865,9 +901,9 @@ function _buildInvoiceHtml() {
   const itemRows = items.map(it =>
     `<tr>
       <td class="center" style="font-size:9pt;">${it.date ? it.date.replace(/-(\d+)-(\d+)/, (_,m,d)=>'/'+parseInt(m)+'/'+parseInt(d)) : ''}</td>
-      <td>${it.name}</td>
+      <td>${_h(it.name)}</td>
       <td class="center">${it.tax}</td>
-      <td class="center">${it.qty} ${it.unit}</td>
+      <td class="center">${it.qty} ${_h(it.unit)}</td>
       <td class="right">${it.price.toLocaleString()}</td>
       <td class="right">${fmt(it.amt)}</td>
     </tr>`
@@ -878,7 +914,7 @@ function _buildInvoiceHtml() {
   return {oppId, invNo, subject, customer, total, html: `<!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="UTF-8">
-<title>ご請求書 ${invNo}</title>
+<title>ご請求書 ${safeInvNo}</title>
 <style>
   @page { size: 210mm 297mm; margin: 10mm 13mm; }
   html, body { width: 210mm; }
@@ -933,14 +969,14 @@ function _buildInvoiceHtml() {
 <div style="padding:12px 0 0;">
 <h1>ご 請 求 書</h1>
 <div class="invno-row">
-  <span>請求No.　<strong>${invNo}</strong></span>
+  <span>請求No.　<strong>${safeInvNo}</strong></span>
   <span>請求日　<strong>${dateStr}</strong></span>
 </div>
 <div class="top-row">
   <div class="top-left">
-    <div><span class="customer-name">${customer}　御中</span></div>
+    <div><span class="customer-name">${safeCustomer}　御中</span></div>
     <div class="subject-box">
-      <span class="slbl">件名：</span>${subject}<br>
+      <span class="slbl">件名：</span>${safeSubject}<br>
       下記の通り、ご請求申し上げます。
     </div>
     <div class="total-box">
@@ -957,8 +993,8 @@ function _buildInvoiceHtml() {
     東京都港区新橋2-20-15<br>
     新橋駅前ビル1号館805<br>
     TEL：${ci.tel}<br>
-    担当：　${owner}<br>
-    E-Mail：<a href="mailto:${ownerEmail}" style="color:#1a50a0;">${ownerEmail}</a><br>
+    担当：　${safeOwner}<br>
+    E-Mail：<a href="mailto:${safeOwnerEmail}" style="color:#1a50a0;">${safeOwnerEmail}</a><br>
     登録番号：${ci.regNo}
     ${companySealHtml}
   </div>
@@ -1003,7 +1039,7 @@ function _buildInvoiceHtml() {
 </div>
 <div class="note-box">
   <div class="ntitle">備考</div>
-  <div style="min-height:40px;">${notes ? notes.replace(/\n/g,'<br>') : ''}</div>
+  <div style="min-height:40px;">${notes ? _h(notes).replace(/\n/g,'<br>') : ''}</div>
 </div>
 </div>
 </body></html>`};
@@ -1271,12 +1307,24 @@ function _buildDeliveryHtml() {
   const total    = subtotal + tax10 + tax8;
   const fmt      = v => '¥' + Math.round(v).toLocaleString();
 
+  // ============================================================
+  // F-8: PDF生成テンプレートのXSS対策（納品書）
+  // ============================================================
+  const safeCustomer   = _h(customer);
+  const safeSubject    = _h(subject);
+  const safeOwner      = _h(owner);
+  const safeDelivNo    = _h(delivNo);
+  const safePayment    = _h(payment);
+  const safeDelivery   = _h(delivery);
+  const safeOwnerEmail = _h(ownerEmail);
+  const safeOwnerTel   = _h(ownerTel);
+
   const MAX_ROWS = 13;
   const itemRows = items.map(it =>
     `<tr>
       <td class="no">${it.no}</td>
-      <td class="desc">${it.name}</td>
-      <td class="center">${it.qty}　${it.unit}</td>
+      <td class="desc">${_h(it.name)}</td>
+      <td class="center">${it.qty}　${_h(it.unit)}</td>
       <td class="right">${it.price.toLocaleString()}</td>
       <td class="right">${fmt(it.amt)}</td>
     </tr>`
@@ -1308,7 +1356,7 @@ function _buildDeliveryHtml() {
   return {oppId, ym, delivNo, customer, total, html: `<!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="UTF-8">
-<title>納品書 ${delivNo}</title>
+<title>納品書 ${safeDelivNo}</title>
 <style>
   @page { size: 210mm 297mm; margin: 12mm 15mm; }
   html, body { width: 210mm; }
@@ -1367,19 +1415,19 @@ function _buildDeliveryHtml() {
 <div style="padding:10px 0 0;">
 <h1>納　品　書</h1>
 <div class="docno-row">
-  <span>納品No.　<strong>${delivNo}</strong></span>
+  <span>納品No.　<strong>${safeDelivNo}</strong></span>
   <span>納品日　<strong>${dateStr}</strong></span>
 </div>
 <div class="top-wrap">
   <div class="top-left">
-    <div><span class="customer-name">${customer}　御中</span></div>
+    <div><span class="customer-name">${safeCustomer}　御中</span></div>
     <div class="subject-box">
-      <span class="slbl">件名：</span>${subject}<br>
+      <span class="slbl">件名：</span>${safeSubject}<br>
       下記のとおり、納品申し上げます。
     </div>
     <table class="meta-table">
-      <tr><td>納期：</td><td>${delivery}</td></tr>
-      <tr><td>支払条件：</td><td><u>${payment}</u></td></tr>
+      <tr><td>納期：</td><td>${safeDelivery}</td></tr>
+      <tr><td>支払条件：</td><td><u>${safePayment}</u></td></tr>
     </table>
     <div class="total-box" style="margin-top:10px;">
       <span class="tlbl">合計金額</span>
@@ -1399,8 +1447,8 @@ function _buildDeliveryHtml() {
     東京都港区新橋2-20-15<br>
     新橋駅前ビル1号館805<br>
     TEL：${ci.tel}<br>
-    担当：　${owner}<br>
-    E-Mail：<a href="mailto:${ownerEmail}" style="color:#185FA5;">${ownerEmail}</a>
+    担当：　${safeOwner}<br>
+    E-Mail：<a href="mailto:${safeOwnerEmail}" style="color:#185FA5;">${safeOwnerEmail}</a>
   </div>
 </div>
 
@@ -1441,7 +1489,7 @@ function _buildDeliveryHtml() {
   </table>
   <div class="note-box">
     <div class="ntitle">備考</div>
-    <div style="min-height:50px;white-space:pre-wrap;">${notes ? notes.replace(/\n/g,'<br>') : ''}</div>
+    <div style="min-height:50px;white-space:pre-wrap;">${notes ? _h(notes).replace(/\n/g,'<br>') : ''}</div>
   </div>
 </div>
 </div>
@@ -3221,6 +3269,22 @@ function saveOpportunity() {
       }
     }
   }
+  // F-6: 月額按分でも同等の整合性チェックを追加
+  //   月額按分は autoFillSchedule で完璧に按分すれば一致するが、
+  //   ユーザーが手動で個別月の値を変更した場合、合計がズレた状態で保存できてしまう。
+  //   進行基準と同じ閾値（0.01万円）で警告する。
+  if(recogVal === '月額按分') {
+    const schedTotal = Object.values(scheduleData).reduce((s, d) => s + (d.sales || 0), 0);
+    if(schedTotal > 0) {
+      const diff = Math.abs(schedTotal - amount);
+      if(diff > 0.01) {
+        const dir = schedTotal < amount ? '少ない' : '多い';
+        const gap = Math.abs(amount - schedTotal).toLocaleString();
+        toast(`月額按分の合計（¥${schedTotal.toLocaleString()}万）が契約総額（¥${amount.toLocaleString()}万）より¥${gap}万 ${dir}です。\n「自動入力」ボタンで按分し直すか、スケジュールを修正してください。`, 'error');
+        return;
+      }
+    }
+  }
 
   const _prevOpp = editId ? db.opportunities.find(o => o.id === editId) : null;
   const _wasWon  = _prevOpp?.stage === '受注';
@@ -3265,6 +3329,19 @@ function saveOpportunity() {
 }
 
 function deleteOpportunity(id) {
+  // F-2: 案件削除の権限制御
+  //   担当者本人 OR マネージャー以上 のみ削除可能とする。
+  //   他人の担当案件を一般営業が削除できないようにすることで、誤削除や悪意ある操作を防ぐ。
+  const opp = db.opportunities.find(o => o.id === id);
+  if(opp) {
+    const isMgr = (typeof isManagerUser === 'function') ? isManagerUser() : false;
+    const cu    = (typeof currentUser !== 'undefined') ? currentUser : null;
+    const isOwner = !!(cu && opp.owner && cu.name === opp.owner);
+    if(!isMgr && !isOwner) {
+      toast('⚠️ 案件削除は担当者本人またはマネージャー以上の権限が必要です', 'error');
+      return;
+    }
+  }
   if(!confirm('この案件を削除しますか？')) return;
   _purgeOpp(id);
   save();
@@ -3288,6 +3365,8 @@ function _purgeOpp(id) {
   }
   // 4. PDF ファイル（localStorage から削除）
   PDF_TYPES.forEach(type => { if(db.pdfFiles) delete db.pdfFiles[pdfKey(id, type)]; });
+  // 5. PDF メタデータ参照（F-4: pdfRefs に孤児レコードが残るバグを修正）
+  PDF_TYPES.forEach(type => { if(db.pdfRefs) delete db.pdfRefs[pdfKey(id, type)]; });
 }
 
 function showOppDetail(id) {
@@ -3437,6 +3516,17 @@ function convertLead(id) {
 }
 
 function deleteLead(id) {
+  // F-2: リード削除の権限制御 (deleteOpportunityと同じポリシー)
+  const lead = db.leads.find(l => l.id === id);
+  if(lead) {
+    const isMgr = (typeof isManagerUser === 'function') ? isManagerUser() : false;
+    const cu    = (typeof currentUser !== 'undefined') ? currentUser : null;
+    const isOwner = !!(cu && lead.owner && cu.name === lead.owner);
+    if(!isMgr && !isOwner) {
+      toast('⚠️ リード削除は担当者本人またはマネージャー以上の権限が必要です', 'error');
+      return;
+    }
+  }
   if(!confirm('このリードを削除しますか？')) return;
   db.leads = db.leads.filter(l=>l.id!==id);
   save();

@@ -446,6 +446,9 @@ async function save() {
 
 
 function resetData() {
+  // F-1: 全データリセットは破壊的操作のため管理者権限のみに制限
+  // (DevToolsから誰でも resetData() を直呼びで全データ初期化できる脆弱性を防ぐ)
+  if(typeof requireAdmin === 'function' && !requireAdmin('全データのリセット')) return;
   if(!confirm('案件管理v2.xlsx の初期データに戻します。手動入力したデータは失われます。よろしいですか？')) return;
   _storage.removeItem(STORE_KEY);
   db = JSON.parse(JSON.stringify(DEFAULT_DATA));

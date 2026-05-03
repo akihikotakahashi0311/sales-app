@@ -118,6 +118,55 @@ const trialBalanceCosts = (function() {
 // 仕様（キャッシュフロー予測 入金予測ロジック）:
 //   1. 入金サイト > 0  → 請求日 + サイト日数 が属する月の「月末営業日」を返す
 //   2. 入金サイト = 0/未設定 → 請求日の「翌月末営業日」を返す
+
+// ============================================================
+// F-5: 日本の銀行休業日(土日 + 固定祝日 + 年末年始)対応
+// ============================================================
+// 国民の祝日のうち、月末営業日に影響する可能性が高いもののみ考慮:
+//   - 1/1〜1/3 (年始/銀行休業)
+//   - 4/29 (昭和の日)
+//   - 5/3〜5/5 (憲法記念日/みどりの日/こどもの日)
+//   - 8/11 (山の日)
+//   - 11/3 (文化の日), 11/23 (勤労感謝の日)
+//   - 12/29〜12/31 (年末/銀行休業)
+//   ※ 移動祝日(成人の日/海の日/敬老の日/スポーツの日)は通常月末ではないため省略
+//   ※ 春分の日/秋分の日 も省略
+//   ※ 完全な祝日対応は japanese-holidays 等のライブラリ導入で対応可能
+function _isBankHoliday(date) {
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  // 年末年始
+  if(m === 1 && d <= 3) return true;
+  if(m === 12 && d >= 29) return true;
+  // 月末になりやすい固定祝日
+  if(m === 4 && d === 29) return true;
+  if(m === 5 && (d === 3 || d === 4 || d === 5)) return true;
+  if(m === 8 && d === 11) return true;
+  if(m === 11 && (d === 3 || d === 23)) return true;
+  if(m === 2 && d === 11) return true; // 建国記念の日
+  if(m === 2 && d === 23) return true; // 天皇誕生日
+  return false;
+}
+
+// 営業日かどうか (土日でも祝日でもない)
+function _isBizDay(date) {
+  const dow = date.getDay();
+  if(dow === 0 || dow === 6) return false;
+  if(_isBankHoliday(date)) return false;
+  return true;
+}
+
+// 与えられた日付が非営業日なら、それより前の最も近い営業日を返す
+function _prevBizDay(date) {
+  const d = new Date(date);
+  let safeCnt = 0;
+  while(!_isBizDay(d) && safeCnt < 14) {
+    d.setDate(d.getDate() - 1);
+    safeCnt++;
+  }
+  return d;
+}
+
 function calcPaymentDate(billingDateStr, billingSite) {
   if(!billingDateStr) return '';
   const d = new Date(billingDateStr);
@@ -135,11 +184,8 @@ function calcPaymentDate(billingDateStr, billingSite) {
     targetY = d.getFullYear();
     targetM = d.getMonth() + 1;
   }
-  // 月末日を取得し、土日なら前倒し
-  const lastDay = new Date(targetY, targetM + 1, 0);
-  const dow = lastDay.getDay();
-  if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
-  else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+  // 月末日を取得し、非営業日(土日/祝日/年末年始)なら前営業日に前倒し (F-5)
+  const lastDay = _prevBizDay(new Date(targetY, targetM + 1, 0));
   return lastDay.toISOString().split('T')[0];
 }
 
@@ -151,10 +197,8 @@ function billingDateToPaymentYm(billingDateStr, billingSite) {
 // ── 月キー → その月の最終営業日(YYYY-MM-DD) ──
 function lastBizDayOfMonth(ymKey) {
   const [y, m] = ymKey.split('-').map(Number);
-  const lastDay = new Date(y, m, 0); // m月の末日
-  const dow = lastDay.getDay();
-  if(dow === 0) lastDay.setDate(lastDay.getDate() - 2);
-  else if(dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+  // F-5: 月末から非営業日(土日/祝日/年末年始)を遡って営業日を見つける
+  const lastDay = _prevBizDay(new Date(y, m, 0));
   return lastDay.toISOString().split('T')[0];
 }
 
@@ -334,6 +378,15 @@ function buildCashflowData() {
   //   'pipeline' → 失注以外すべて（weight=確度/100、加重）
   const opps = db.opportunities.filter(o => {
     if(!matchesScope(o)) return false;
+    // F-9: 大量案件時のパフォーマンス最適化
+    //   契約終了日が予測開始時点より前の案件は、未来の予測には影響しないため除外。
+    //   ただし入金が将来発生する可能性があるため、終了日 + 4ヶ月の余裕を持たせる。
+    //   (入金サイト最大120日 = 約4ヶ月)
+    if(o.end) {
+      const endYm = String(o.end).slice(0, 7);
+      const cutoffYm = addMonthKey(months[0], -4); // 予測開始 - 4ヶ月
+      if(endYm < cutoffYm) return false;
+    }
     if(statusFilter === 'pipeline') return !['失注'].includes(o.stage);
     if(statusFilter === 'prob80')   return (o.prob || 0) >= 80 && o.stage !== '失注';
     return o.stage === '受注';
