@@ -24,6 +24,7 @@ function onPopupBillingTypeChange() {
   const dateLabel = document.getElementById('popup-billing-date-label');
   const dateHint  = document.getElementById('popup-billing-date-hint');
   const nextGroup = document.getElementById('popup-next-billing-date-group');
+  const msSection = document.getElementById('popup-milestones-section');
   // 月次請求の場合: 契約終了日を必須に
   const endBadge  = document.getElementById('popup-end-required-badge');
   const optBadge  = document.getElementById('popup-end-optional-badge');
@@ -32,21 +33,26 @@ function onPopupBillingTypeChange() {
     if(dateGroup) dateGroup.style.display = 'none';
     if(nextGroup) nextGroup.style.display = 'none';
     if(dateHint)  dateHint.textContent = '月次請求のため毎月末に自動設定されます';
+    if(msSection) msSection.style.display = 'none';
     // 月次売上計上のため契約終了日を必須表示
     if(endBadge) endBadge.style.display = '';
     if(optBadge) optBadge.style.display = 'none';
   } else if(type === 'milestone') {
     if(dateGroup) dateGroup.style.display = '';
     if(dateLabel) dateLabel.textContent = '初回請求予定日';
-    if(nextGroup) nextGroup.style.display = '';
-    if(dateHint)  dateHint.textContent = '請求書発行後、次回請求予定日を更新してください';
+    if(nextGroup) nextGroup.style.display = 'none'; // マイルストーンUIで管理するため非表示
+    if(dateHint)  dateHint.textContent = '初回請求予定日を入力後、下の「＋マイルストーン追加」で2回目以降を追加してください';
+    if(msSection) msSection.style.display = '';
     if(endBadge) endBadge.style.display = 'none';
     if(optBadge) optBadge.style.display = '';
+    // マイルストーンUI初期化（行が空なら初回行を生成）
+    if(typeof initPopupMilestonesUI === 'function') initPopupMilestonesUI();
   } else if(type === 'lump') {
     if(dateGroup) dateGroup.style.display = '';
     if(dateLabel) dateLabel.textContent = '請求予定日';
     if(nextGroup) nextGroup.style.display = 'none';
     if(dateHint)  dateHint.textContent = '';
+    if(msSection) msSection.style.display = 'none';
     if(endBadge) endBadge.style.display = 'none';
     if(optBadge) optBadge.style.display = '';
   } else {
@@ -54,6 +60,7 @@ function onPopupBillingTypeChange() {
     if(dateLabel) dateLabel.textContent = '請求予定日';
     if(nextGroup) nextGroup.style.display = 'none';
     if(dateHint)  dateHint.textContent = '';
+    if(msSection) msSection.style.display = 'none';
     if(endBadge) endBadge.style.display = 'none';
     if(optBadge) optBadge.style.display = '';
   }
@@ -106,6 +113,9 @@ function initContractDatePopup(oppId) {
   if(nbEl)  nbEl.value  = opp?.nextBillingDate  || '';
   if(pdEl)  pdEl.value  = opp?.paymentDue       || '';
   if(bmEl)  bmEl.value  = opp?.billingMemo      || '';
+  // マイルストーン: いったんリストをクリア（onPopupBillingTypeChange→initPopupMilestonesUIで再構築）
+  const msListEl = document.getElementById('popup-milestones-list');
+  if(msListEl) msListEl.innerHTML = '';
   // エラークリア
   ['popup-contract-error','popup-end-error','popup-billing-type-error'].forEach(id => {
     const el = document.getElementById(id);
@@ -113,6 +123,19 @@ function initContractDatePopup(oppId) {
   });
   // UIを更新
   onPopupBillingTypeChange();
+
+  // マイルストーンの値を反映（onPopupBillingTypeChange 後に呼ぶ：表示状態確定後）
+  if(opp?.billingType === 'milestone') {
+    if(Array.isArray(opp.milestones) && opp.milestones.length > 0) {
+      // 保存済みマイルストーンを展開
+      if(typeof setPopupMilestonesToUI === 'function') setPopupMilestonesToUI(opp.milestones);
+    } else {
+      // 旧データ: billingDate に契約金額全額を入れた初回行のみで初期化
+      if(typeof setPopupMilestonesToUI === 'function') {
+        setPopupMilestonesToUI([{ date: opp.billingDate || '', amount: opp.amount || 0 }]);
+      }
+    }
+  }
 }
 
 function saveContractDatePopup() {
@@ -142,6 +165,45 @@ function saveContractDatePopup() {
     btErrEl.textContent = '請求タイプは必須です';
     hasError = true;
   } else { btErrEl.textContent = ''; }
+
+  // マイルストーン: 各行の整合性 + 合計＝契約金額
+  let milestonesForSave = null;
+  if(billingType === 'milestone') {
+    const ms = (typeof getPopupMilestonesFromUI === 'function') ? getPopupMilestonesFromUI() : [];
+    const total = (typeof _getPopupContractAmount === 'function') ? _getPopupContractAmount() : 0;
+
+    if(ms.length === 0) {
+      btErrEl.textContent = 'マイルストーン請求一覧を入力してください（最低1件必要）';
+      hasError = true;
+    } else {
+      const rowErrors = [];
+      for(let i = 0; i < ms.length; i++) {
+        if(!ms[i].date)         rowErrors.push(`第${i+1}回の請求予定日`);
+        if(!(ms[i].amount > 0)) rowErrors.push(`第${i+1}回の請求金額`);
+      }
+      // 入金予定日が未入力なら自動補完
+      ms.forEach(m => {
+        if(m.date && !m.paymentDate && typeof _calcPopupMilestonePaymentDate === 'function') {
+          m.paymentDate = _calcPopupMilestonePaymentDate(m.date);
+        }
+      });
+      const sum = Math.round(ms.reduce((s, m) => s + (m.amount || 0), 0) * 10000) / 10000;
+      if(total <= 0) {
+        rowErrors.push('契約金額が未入力（案件モーダルで入力してください）');
+      } else if(Math.abs(sum - total) > 0.0001) {
+        const dir = sum < total ? '少ない' : '多い';
+        const gap = Math.abs(total - sum).toLocaleString(undefined, {maximumFractionDigits:4});
+        rowErrors.push(`マイルストーン合計（¥${sum.toLocaleString(undefined,{maximumFractionDigits:4})}万）が契約金額（¥${total.toLocaleString(undefined,{maximumFractionDigits:4})}万）より¥${gap}万 ${dir}`);
+      }
+      if(rowErrors.length > 0) {
+        btErrEl.textContent = '入力エラー: ' + rowErrors.join(' / ');
+        hasError = true;
+      } else {
+        milestonesForSave = ms;
+      }
+    }
+  }
+
   if(hasError) return;
 
   const oppId = _contractDateOppId;
@@ -159,6 +221,12 @@ function saveContractDatePopup() {
       db.opportunities[idx].nextBillingDate = nextBilDate;
       db.opportunities[idx].paymentDue      = paymentDue;
       db.opportunities[idx].billingMemo     = billingMemo;
+      // マイルストーン配列の保存
+      if(billingType === 'milestone' && milestonesForSave) {
+        db.opportunities[idx].milestones    = milestonesForSave;
+      } else {
+        db.opportunities[idx].milestones    = [];
+      }
       // 契約書アップロード → 受注に変更
       const wasWon = db.opportunities[idx].stage === '受注';
       db.opportunities[idx].stage = '受注';
@@ -167,12 +235,22 @@ function saveContractDatePopup() {
       save();
       closeModal('contract-date-popup');
       toast(wasWon ? '契約日を保存しました' : '🎉 受注登録しました！', 'success');
-      // 請求予定日が確定した場合、当該月の請求額を自動更新
+      // マイルストーン保存時は force=true で月次データを上書き反映
       const _savedOpp = db.opportunities[idx];
-      if(_savedOpp && _savedOpp.billingDate) autoSetBillingFromOpp(_savedOpp);
+      if(_savedOpp) {
+        const isMilestone = (_savedOpp.billingType === 'milestone' && Array.isArray(_savedOpp.milestones) && _savedOpp.milestones.length > 0);
+        if(_savedOpp.billingDate || isMilestone) {
+          autoSetBillingFromOpp(_savedOpp, isMilestone);
+          save();
+        }
+      }
       if(currentDetailOppId === oppId) showOppDetail(oppId);
       renderOpportunities();
       renderDashboard();
+      // 月次管理が表示中なら再描画して請求額反映を見せる
+      if(typeof renderMonthly === 'function') {
+        try { renderMonthly(); } catch(e) { /* 非表示時は無視 */ }
+      }
       // クラッカー表示（新規受注のみ・600ms後）
       if(!wasWon) setTimeout(() => showCrackerAnimation(), 600);
     }
@@ -185,6 +263,8 @@ function saveContractDatePopup() {
     window._pendingNextBilDate     = nextBilDate;
     window._pendingPaymentDue      = paymentDue;
     window._pendingBillingMemo     = billingMemo;
+    // マイルストーン保留分も保存（案件本登録時に反映）
+    window._pendingMilestones      = (billingType === 'milestone' && milestonesForSave) ? milestonesForSave : [];
     toast('契約時必要事項を設定しました（案件保存時に反映されます）', 'success');
     closeModal('contract-date-popup');
   }
@@ -504,3 +584,275 @@ function markAsPaid(oppId, ym) {
 // ============================================================
 // ルール: 請求予定日の翌月最終営業日に請求予定額が入金されるものとする
 // ============================================================
+
+// ============================================================
+// 契約時ポップアップ: マイルストーン請求一覧 UI
+// ============================================================
+// 案件モーダル側 (leads.js) と同じ構造・動作。ID prefix のみ "popup-" に変更。
+// 形式: opp.milestones = [{date, paymentDate, amount}, ...]
+// ------------------------------------------------------------
+
+// 契約金額（万円）を取得
+function _getPopupContractAmount() {
+  const oppId = (typeof _contractDateOppId !== 'undefined') ? _contractDateOppId : null;
+  if(oppId && oppId !== '__new__') {
+    const opp = db.opportunities.find(o => o.id === oppId);
+    if(opp && opp.amount > 0) {
+      return Math.round(opp.amount * 10000) / 10000;
+    }
+  }
+  // 新規登録中: 案件モーダル側の入力値を参照
+  const v = parseFloat(document.getElementById('f-opp-amount')?.value || '0');
+  return isNaN(v) ? 0 : Math.round(v * 10000) / 10000;
+}
+
+// 入金予定日を算出
+function _calcPopupMilestonePaymentDate(billingDate) {
+  if(!billingDate || !/^\d{4}-\d{2}-\d{2}$/.test(billingDate)) return '';
+  const site = parseInt(document.getElementById('popup-billing-site')?.value || '0');
+  if(site > 0) {
+    const d = new Date(billingDate);
+    d.setDate(d.getDate() + site);
+    return d.toISOString().split('T')[0];
+  }
+  if(typeof nextMonthEndBizDay === 'function') {
+    return nextMonthEndBizDay(billingDate);
+  }
+  return '';
+}
+
+// 1行ぶんの HTML を生成
+function _popupMilestoneRowHtml(idx, date, amount, paymentDate) {
+  const isFirst = (idx === 0);
+  const dateAttr = isFirst
+    ? 'readonly title="初回請求予定日は上の「初回請求予定日」と連動します"'
+    : '';
+  const dateBg = isFirst ? 'background:var(--bg-secondary);' : '';
+  const removeBtn = isFirst
+    ? '<span style="width:28px;display:inline-block;"></span>'
+    : `<button type="button" class="btn btn-sm" style="padding:4px 8px;" onclick="removePopupMilestoneRow(${idx})" title="この行を削除">✕</button>`;
+  const labelText = isFirst ? '初回' : `第${idx + 1}回`;
+  return `
+    <div class="popup-milestone-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <span style="min-width:48px;font-size:12px;color:var(--text-secondary);font-weight:600;">${labelText}</span>
+      <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:140px;">
+        <span style="font-size:10px;color:var(--text-muted);">請求予定日</span>
+        <input type="date" class="form-control popup-milestone-date" data-idx="${idx}"
+               value="${_ha(date || '')}" ${dateAttr}
+               style="${dateBg}"
+               oninput="onPopupMilestoneDateChange(${idx})">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:140px;">
+        <span style="font-size:10px;color:var(--text-muted);">入金予定日</span>
+        <input type="date" class="form-control popup-milestone-payment-date" data-idx="${idx}"
+               value="${_ha(paymentDate || '')}"
+               oninput="onPopupMilestonePaymentDateChange(${idx})"
+               title="請求予定日変更時に自動補完されます。手動で上書き可能。">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:120px;">
+        <span style="font-size:10px;color:var(--text-muted);">金額</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <input type="number" class="form-control popup-milestone-amount" data-idx="${idx}"
+                 value="${amount > 0 ? amount : ''}" placeholder="金額" step="0.0001" min="0"
+                 style="flex:1;"
+                 oninput="updatePopupMilestoneSummary()">
+          <span style="font-size:11px;color:var(--text-muted);">万円</span>
+        </div>
+      </div>
+      ${removeBtn}
+    </div>`;
+}
+
+// マイルストーンUIを初期化（リストが空なら初回行を生成）
+function initPopupMilestonesUI() {
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  if(list.children.length === 0) {
+    const firstDate = document.getElementById('popup-billing-date')?.value || '';
+    const firstPayment = firstDate ? _calcPopupMilestonePaymentDate(firstDate) : '';
+    list.innerHTML = _popupMilestoneRowHtml(0, firstDate, 0, firstPayment);
+  }
+  updatePopupMilestoneSummary();
+}
+
+// 請求予定日変更時: 入金予定日が空なら自動補完
+function onPopupMilestoneDateChange(idx) {
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  const row = list.querySelector(`.popup-milestone-row[data-idx="${idx}"]`);
+  if(!row) return;
+  const dateEl = row.querySelector('.popup-milestone-date');
+  const payEl  = row.querySelector('.popup-milestone-payment-date');
+  if(!dateEl || !payEl) return;
+  const date = dateEl.value || '';
+  if(!payEl.value) {
+    payEl.value = _calcPopupMilestonePaymentDate(date);
+  }
+  updatePopupMilestoneSummary();
+}
+
+// 入金予定日が手動変更されたとき
+function onPopupMilestonePaymentDateChange(idx) {
+  updatePopupMilestoneSummary();
+}
+
+// 入金サイト変更時: 空のままの入金予定日のみ自動更新
+function onPopupMilestoneSiteChange() {
+  const type = document.getElementById('popup-billing-type')?.value || '';
+  if(type !== 'milestone') return;
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  const rows = list.querySelectorAll('.popup-milestone-row');
+  rows.forEach(row => {
+    const dateEl = row.querySelector('.popup-milestone-date');
+    const payEl  = row.querySelector('.popup-milestone-payment-date');
+    if(!dateEl || !payEl) return;
+    const date = dateEl.value || '';
+    if(!date) return;
+    if(!payEl.value) {
+      payEl.value = _calcPopupMilestonePaymentDate(date);
+    }
+  });
+  updatePopupMilestoneSummary();
+}
+
+// 初回請求予定日（popup-billing-date）が変わったら、リスト1行目の日付を同期
+function onPopupMilestoneFirstDateChange() {
+  const type = document.getElementById('popup-billing-type')?.value || '';
+  if(type !== 'milestone') return;
+  const firstDate = document.getElementById('popup-billing-date')?.value || '';
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  const firstDateInput = list.querySelector('.popup-milestone-date[data-idx="0"]');
+  const firstPayInput  = list.querySelector('.popup-milestone-payment-date[data-idx="0"]');
+  if(firstDateInput) {
+    firstDateInput.value = firstDate;
+  }
+  if(firstPayInput && !firstPayInput.value && firstDate) {
+    firstPayInput.value = _calcPopupMilestonePaymentDate(firstDate);
+  }
+  updatePopupMilestoneSummary();
+}
+
+// 現在の入力からマイルストーン配列を取得
+function getPopupMilestonesFromUI() {
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return [];
+  const rows = list.querySelectorAll('.popup-milestone-row');
+  const out = [];
+  rows.forEach(row => {
+    const dateEl    = row.querySelector('.popup-milestone-date');
+    const amountEl  = row.querySelector('.popup-milestone-amount');
+    const payEl     = row.querySelector('.popup-milestone-payment-date');
+    const date        = dateEl ? dateEl.value : '';
+    const paymentDate = payEl ? payEl.value : '';
+    const amtRaw      = amountEl ? parseFloat(amountEl.value || '0') : 0;
+    const amount      = isNaN(amtRaw) ? 0 : Math.round(amtRaw * 10000) / 10000;
+    out.push({ date: date || '', paymentDate: paymentDate || '', amount });
+  });
+  return out;
+}
+
+// 既存マイルストーン配列を UI に流し込む
+function setPopupMilestonesToUI(milestones) {
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  if(!Array.isArray(milestones) || milestones.length === 0) {
+    list.innerHTML = '';
+    initPopupMilestonesUI();
+    return;
+  }
+  list.innerHTML = milestones.map((m, idx) => {
+    const pd = m.paymentDate || (m.date ? _calcPopupMilestonePaymentDate(m.date) : '');
+    return _popupMilestoneRowHtml(idx, m.date || '', m.amount || 0, pd);
+  }).join('');
+  // 1行目の日付は popup-billing-date と整合させる
+  const firstDate = document.getElementById('popup-billing-date')?.value || '';
+  if(firstDate && milestones[0]) {
+    const firstDateInput = list.querySelector('.popup-milestone-date[data-idx="0"]');
+    if(firstDateInput && !firstDateInput.value) firstDateInput.value = firstDate;
+  } else if(milestones[0] && milestones[0].date) {
+    const bd = document.getElementById('popup-billing-date');
+    if(bd && !bd.value) bd.value = milestones[0].date;
+  }
+  updatePopupMilestoneSummary();
+}
+
+// マイルストーン1行を末尾に追加
+function addPopupMilestoneRow() {
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  const cur = getPopupMilestonesFromUI();
+  const total = _getPopupContractAmount();
+  const sum = cur.reduce((s, m) => s + (m.amount || 0), 0);
+  const remain = Math.round((total - sum) * 10000) / 10000;
+
+  if(total <= 0) {
+    toast('先に契約金額を入力してください（案件登録モーダルの「契約金額」欄）', 'warn');
+    return;
+  }
+  if(remain <= 0) {
+    toast('合計が契約金額に達しているため、これ以上追加できません', 'info');
+    return;
+  }
+
+  const idx = cur.length;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _popupMilestoneRowHtml(idx, '', remain, '').trim();
+  list.appendChild(tmp.firstChild);
+  updatePopupMilestoneSummary();
+}
+
+// マイルストーン1行を削除（初回 idx=0 は削除不可）
+function removePopupMilestoneRow(idx) {
+  if(idx === 0) return;
+  const list = document.getElementById('popup-milestones-list');
+  if(!list) return;
+  const cur = getPopupMilestonesFromUI();
+  if(idx < 0 || idx >= cur.length) return;
+  cur.splice(idx, 1);
+  setPopupMilestonesToUI(cur);
+}
+
+// 合計／残額の表示を更新し、＋ボタンの有効/無効を切り替える
+function updatePopupMilestoneSummary() {
+  const sumEl    = document.getElementById('popup-milestones-sum');
+  const totalEl  = document.getElementById('popup-milestones-total');
+  const remainEl = document.getElementById('popup-milestones-remain');
+  const addBtn   = document.getElementById('popup-milestone-add-btn');
+  const summaryWrap = document.getElementById('popup-milestones-summary');
+  if(!sumEl || !totalEl || !remainEl) return;
+
+  const total = _getPopupContractAmount();
+  const ms    = getPopupMilestonesFromUI();
+  const sum   = Math.round(ms.reduce((s, m) => s + (m.amount || 0), 0) * 10000) / 10000;
+  const remain = Math.round((total - sum) * 10000) / 10000;
+
+  sumEl.textContent    = sum.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  totalEl.textContent  = total.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  remainEl.textContent = remain.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+  if(addBtn) {
+    if(total <= 0 || remain <= 0.0001) {
+      addBtn.setAttribute('disabled', 'disabled');
+      addBtn.style.opacity = '0.5';
+      addBtn.style.cursor  = 'not-allowed';
+    } else {
+      addBtn.removeAttribute('disabled');
+      addBtn.style.opacity = '';
+      addBtn.style.cursor  = '';
+    }
+  }
+  if(summaryWrap) {
+    if(total > 0 && Math.abs(remain) < 0.0001) {
+      summaryWrap.style.color = 'var(--success, #059669)';
+      summaryWrap.style.fontWeight = '600';
+    } else if(remain < -0.0001) {
+      summaryWrap.style.color = 'var(--danger, #dc2626)';
+      summaryWrap.style.fontWeight = '600';
+    } else {
+      summaryWrap.style.color = '';
+      summaryWrap.style.fontWeight = '';
+    }
+  }
+}

@@ -3690,8 +3690,13 @@ function saveOpportunity() {
     paymentDue:      document.getElementById('f-opp-payment-due')?.value || '',
     billingMemo:     document.getElementById('f-opp-billing-memo')?.value.trim() || '',
     // マイルストーン請求の場合: 各回の請求予定日・金額を配列で保存
-    // 形式: [{date:'YYYY-MM-DD', amount:number(万円)}, ...]
-    milestones:      (_billingType === 'milestone' && _milestonesForSave) ? _milestonesForSave : [],
+    // 形式: [{date:'YYYY-MM-DD', paymentDate:'YYYY-MM-DD', amount:number(万円)}, ...]
+    // 案件モーダルで入力されたものを優先、無ければ契約時ポップアップ保留分（新規受注フロー）を採用
+    milestones:      (_billingType === 'milestone' && _milestonesForSave)
+                       ? _milestonesForSave
+                       : (_billingType === 'milestone' && Array.isArray(window._pendingMilestones) && window._pendingMilestones.length > 0
+                           ? window._pendingMilestones
+                           : []),
     // Teamsチャネル URL（任意・空欄可）
     teamsUrl:        sanitizeTeamsUrl(document.getElementById('f-opp-teams-url')?.value || ''),
     stageHistory,
@@ -3750,7 +3755,11 @@ function saveOpportunity() {
   // 新規登録時: '__new__' キーで保存されたPDFを正式IDに移行
   if(!editId) migratePdfFiles('__new__', opp.id);
   // 新規登録時の契約日ペンディングをクリア
-  if(!editId) { window._pendingContractDate = ''; window._pendingContractEnd = ''; }
+  if(!editId) {
+    window._pendingContractDate = '';
+    window._pendingContractEnd  = '';
+    window._pendingMilestones   = null;
+  }
   closeModal('opp');
   toast(editId ? '案件を更新しました' : '案件を登録しました', 'success');
   if(!editId) {
