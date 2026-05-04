@@ -2372,7 +2372,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div class="form-group">
           <label class="form-label">入金サイト（日数）</label>
-          <input class="form-control" type="number" id="f-opp-billing-site" placeholder="例: 30" min="0" max="365" oninput="calcPaymentDueDate()">
+          <input class="form-control" type="number" id="f-opp-billing-site" placeholder="例: 30" min="0" max="365" oninput="calcPaymentDueDate();onMilestoneSiteChange();">
         </div>
       </div>
       <div class="form-row" id="f-opp-billing-date-row">
@@ -2391,7 +2391,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-group" id="f-opp-milestones-section" style="display:none;margin-top:8px;">
         <label class="form-label">
           マイルストーン請求一覧
-          <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">（請求予定日と請求金額を入力。合計が契約金額と一致するまで「＋」で追加できます）</span>
+          <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">（請求予定日・入金予定日・金額を1組として入力。合計が契約金額と一致するまで「＋」で追加できます）</span>
         </label>
         <div id="f-opp-milestones-list" style="display:flex;flex-direction:column;gap:6px;"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:12px;flex-wrap:wrap;">
@@ -2685,19 +2685,38 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div class="form-group">
           <label class="form-label">入金サイト（日数）</label>
-          <input class="form-control" type="number" id="popup-billing-site" placeholder="例: 30" min="0" max="365" oninput="calcPopupPaymentDueDate()">
+          <input class="form-control" type="number" id="popup-billing-site" placeholder="例: 30" min="0" max="365" oninput="calcPopupPaymentDueDate();onPopupMilestoneSiteChange();">
         </div>
       </div>
       <div class="form-row" id="popup-billing-date-row">
         <div class="form-group" id="popup-billing-date-group">
           <label class="form-label" id="popup-billing-date-label">請求予定日</label>
-          <input class="form-control" type="date" id="popup-billing-date" oninput="calcPopupPaymentDueDate()">
+          <input class="form-control" type="date" id="popup-billing-date" oninput="calcPopupPaymentDueDate();onPopupMilestoneFirstDateChange();">
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="popup-billing-date-hint"></div>
         </div>
         <div class="form-group" id="popup-next-billing-date-group" style="display:none;">
           <label class="form-label">次回請求予定日 <span style="font-size:10px;color:var(--text-muted);">（発行後更新）</span></label>
           <input class="form-control" type="date" id="popup-next-billing-date">
         </div>
+      </div>
+
+      <!-- マイルストーン請求一覧（請求タイプ=milestone のとき表示） -->
+      <div class="form-group" id="popup-milestones-section" style="display:none;margin-top:8px;">
+        <label class="form-label">
+          マイルストーン請求一覧
+          <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">（請求予定日・入金予定日・金額を1組として入力。合計が契約金額と一致するまで「＋」で追加できます）</span>
+        </label>
+        <div id="popup-milestones-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:12px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm" id="popup-milestone-add-btn" onclick="addPopupMilestoneRow()">
+            ＋ マイルストーン追加
+          </button>
+          <div id="popup-milestones-summary" style="font-size:12px;color:var(--text-secondary);">
+            合計: <span id="popup-milestones-sum">0</span> 万円 / 契約金額: <span id="popup-milestones-total">0</span> 万円
+            （残り <span id="popup-milestones-remain">0</span> 万円）
+          </div>
+        </div>
+        <div id="popup-milestones-error" style="color:var(--red);font-size:12px;margin-top:4px;"></div>
       </div>
       <div class="form-row">
         <div class="form-group">
