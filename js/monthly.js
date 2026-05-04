@@ -821,6 +821,12 @@ function populateOppModal(opp=null) {
   if(_nb) _nb.value = opp?.nextBillingDate  || '';
   if(_pd) _pd.value = opp?.paymentDue       || '';
   if(_bm) _bm.value = opp?.billingMemo      || '';
+  // マイルストーン請求一覧の復元
+  // - 既存 opp.milestones があればそれを使う
+  // - 旧データ（billingDate のみ）の場合は initMilestonesUI() が初回行を生成
+  // - 一旦リストを空にしてから onBillingTypeChange() → initMilestonesUI() に任せる
+  const _msList = document.getElementById('f-opp-milestones-list');
+  if(_msList) _msList.innerHTML = '';
   // Teamsチャネル URL
   const _tu = document.getElementById('f-opp-teams-url');
   if(_tu) {
@@ -829,6 +835,19 @@ function populateOppModal(opp=null) {
   }
   // 請求タイプに応じてUIを更新
   onBillingTypeChange();
+
+  // マイルストーンの値を反映（onBillingTypeChange 後に呼ぶ：表示状態が確定してから）
+  if(opp?.billingType === 'milestone') {
+    if(Array.isArray(opp.milestones) && opp.milestones.length > 0) {
+      // 保存済みマイルストーンを展開
+      if(typeof setMilestonesToUI === 'function') setMilestonesToUI(opp.milestones);
+    } else {
+      // 旧データ: billingDate に契約金額全額を入れた初回行のみで初期化
+      if(typeof setMilestonesToUI === 'function') {
+        setMilestonesToUI([{ date: opp.billingDate || '', amount: opp.amount || 0 }]);
+      }
+    }
+  }
 }
 
 function populateCustModal() {

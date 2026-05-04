@@ -282,24 +282,44 @@ function buildOppBillingForecast(opp, forecastEndYm) {
       }
     }
   } else if(opp.billingType === 'milestone') {
-    // マイルストーン: db.monthly のスケジュール(billing or sales)から予測
-    const allYms = Object.keys(db.monthly).sort();
-    allYms.forEach(ym => {
-      if(ym <= currentMonth) return;
-      if(ym > forecastEndYm) return;
-      if(existingBillingYms.has(ym)) return;
-      const m = db.monthly[ym]?.[oppId];
-      if(!m) return;
-      const amt = m.billing || m.sales || 0;
-      if(amt <= 0) return;
-      const billingDate = m.billingDate || lastBizDayOfMonth(ym);
-      const paymentDate = calcPaymentDate(billingDate, site);
-      const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
-      records.push({
-        billingYm: ym, billingDate, billingAmt: amt,
-        paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+    // マイルストーン: opp.milestones 配列があればそれを優先、なければ db.monthly から予測
+    if(Array.isArray(opp.milestones) && opp.milestones.length > 0) {
+      opp.milestones.forEach(ms => {
+        if(!ms || !ms.date) return;
+        const ym = ms.date.slice(0, 7);
+        if(ym <= currentMonth) return;
+        if(ym > forecastEndYm) return;
+        if(existingBillingYms.has(ym)) return;
+        const amt = Number(ms.amount) || 0;
+        if(amt <= 0) return;
+        const billingDate = ms.date;
+        const paymentDate = calcPaymentDate(billingDate, site);
+        const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+        records.push({
+          billingYm: ym, billingDate, billingAmt: amt,
+          paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+        });
       });
-    });
+    } else {
+      // 旧データ互換: db.monthly のスケジュール(billing or sales)から予測
+      const allYms = Object.keys(db.monthly).sort();
+      allYms.forEach(ym => {
+        if(ym <= currentMonth) return;
+        if(ym > forecastEndYm) return;
+        if(existingBillingYms.has(ym)) return;
+        const m = db.monthly[ym]?.[oppId];
+        if(!m) return;
+        const amt = m.billing || m.sales || 0;
+        if(amt <= 0) return;
+        const billingDate = m.billingDate || lastBizDayOfMonth(ym);
+        const paymentDate = calcPaymentDate(billingDate, site);
+        const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
+        records.push({
+          billingYm: ym, billingDate, billingAmt: amt,
+          paymentYm, paymentDate, cashAmt: 0, source: 'forecast',
+        });
+      });
+    }
   } else {
     // billingType未設定 → 計上方式(recog)からフォールバック予測
     if(opp.recog === '月額按分' && opp.start && opp.end) {
