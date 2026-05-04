@@ -2236,7 +2236,7 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
         </div>
         <div class="form-group">
           <label class="form-label required">契約総額（万円）</label>
-          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0" onchange="onScheduleParamChange()">
+          <input class="form-control" id="f-opp-amount" type="number" step="0.0001" min="0" placeholder="0" onchange="onScheduleParamChange();updateMilestoneSummary();" oninput="updateMilestoneSummary();">
         </div>
       </div>
       <div class="form-row">
@@ -2378,12 +2378,30 @@ th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; color: var(--accent)
       <div class="form-row" id="f-opp-billing-date-row">
         <div class="form-group" id="f-opp-billing-date-group">
           <label class="form-label" id="f-opp-billing-date-label">請求予定日</label>
-          <input class="form-control" type="date" id="f-opp-billing-date" oninput="calcPaymentDueDate()">
+          <input class="form-control" type="date" id="f-opp-billing-date" oninput="calcPaymentDueDate();onMilestoneFirstDateChange();">
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="f-opp-billing-date-hint"></div>
         </div>
         <div class="form-group" id="f-opp-next-billing-date-group" style="display:none;">
           <label class="form-label">次回請求予定日 <span style="font-size:10px;color:var(--text-muted);">（発行後更新）</span></label>
           <input class="form-control" type="date" id="f-opp-next-billing-date">
+        </div>
+      </div>
+
+      <!-- マイルストーン請求一覧（請求タイプ=milestone のとき表示） -->
+      <div class="form-group" id="f-opp-milestones-section" style="display:none;margin-top:8px;">
+        <label class="form-label">
+          マイルストーン請求一覧
+          <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">（請求予定日と請求金額を入力。合計が契約金額と一致するまで「＋」で追加できます）</span>
+        </label>
+        <div id="f-opp-milestones-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:12px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm" id="f-opp-milestone-add-btn" onclick="addMilestoneRow()">
+            ＋ マイルストーン追加
+          </button>
+          <div id="f-opp-milestones-summary" style="font-size:12px;color:var(--text-secondary);">
+            合計: <span id="f-opp-milestones-sum">0</span> 万円 / 契約金額: <span id="f-opp-milestones-total">0</span> 万円
+            （残り <span id="f-opp-milestones-remain">0</span> 万円）
+          </div>
         </div>
       </div>
       <div class="form-row">
