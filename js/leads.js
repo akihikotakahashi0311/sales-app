@@ -2913,7 +2913,7 @@ function _getContractAmount() {
 }
 
 // 1行ぶんの HTML を生成（idx=0 は初回＝削除不可・日付は f-opp-billing-date と連動）
-function _milestoneRowHtml(idx, date, amount) {
+function _milestoneRowHtml(idx, date, amount, paymentDate) {
   const isFirst = (idx === 0);
   const dateAttr = isFirst
     ? 'readonly title="初回請求予定日は上の「初回請求予定日」と連動します"'
@@ -2926,15 +2926,30 @@ function _milestoneRowHtml(idx, date, amount) {
   return `
     <div class="milestone-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
       <span style="min-width:48px;font-size:12px;color:var(--text-secondary);font-weight:600;">${labelText}</span>
-      <input type="date" class="form-control milestone-date" data-idx="${idx}"
-             value="${_ha(date || '')}" ${dateAttr}
-             style="flex:1;min-width:140px;${dateBg}"
-             oninput="updateMilestoneSummary()">
-      <input type="number" class="form-control milestone-amount" data-idx="${idx}"
-             value="${amount > 0 ? amount : ''}" placeholder="金額(万円)" step="0.0001" min="0"
-             style="flex:1;min-width:120px;"
-             oninput="updateMilestoneSummary()">
-      <span style="font-size:11px;color:var(--text-muted);">万円</span>
+      <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:140px;">
+        <span style="font-size:10px;color:var(--text-muted);">請求予定日</span>
+        <input type="date" class="form-control milestone-date" data-idx="${idx}"
+               value="${_ha(date || '')}" ${dateAttr}
+               style="${dateBg}"
+               oninput="onMilestoneDateChange(${idx})">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:140px;">
+        <span style="font-size:10px;color:var(--text-muted);">入金予定日</span>
+        <input type="date" class="form-control milestone-payment-date" data-idx="${idx}"
+               value="${_ha(paymentDate || '')}"
+               oninput="onMilestonePaymentDateChange(${idx})"
+               title="請求予定日変更時に自動補完されます。手動で上書き可能。">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:120px;">
+        <span style="font-size:10px;color:var(--text-muted);">金額</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <input type="number" class="form-control milestone-amount" data-idx="${idx}"
+                 value="${amount > 0 ? amount : ''}" placeholder="金額" step="0.0001" min="0"
+                 style="flex:1;"
+                 oninput="updateMilestoneSummary()">
+          <span style="font-size:11px;color:var(--text-muted);">万円</span>
+        </div>
+      </div>
       ${removeBtn}
     </div>`;
 }
@@ -2946,10 +2961,79 @@ function initMilestonesUI() {
   const list = document.getElementById('f-opp-milestones-list');
   if(!list) return;
   if(list.children.length === 0) {
-    // 初回行のみ生成（日付は f-opp-billing-date と連動）
+    // 初回行のみ生成（日付は f-opp-billing-date と連動、入金予定日は自動計算）
     const firstDate = document.getElementById('f-opp-billing-date')?.value || '';
-    list.innerHTML = _milestoneRowHtml(0, firstDate, 0);
+    const firstPayment = firstDate ? _calcMilestonePaymentDate(firstDate) : '';
+    list.innerHTML = _milestoneRowHtml(0, firstDate, 0, firstPayment);
   }
+  updateMilestoneSummary();
+}
+
+// 請求予定日から入金予定日を算出（入金サイト > 翌月末営業日）
+// ※ 案件モーダル内で完結するため、案件の入金サイトを使う
+function _calcMilestonePaymentDate(billingDate) {
+  if(!billingDate || !/^\d{4}-\d{2}-\d{2}$/.test(billingDate)) return '';
+  const site = parseInt(document.getElementById('f-opp-billing-site')?.value || '0');
+  if(site > 0) {
+    const d = new Date(billingDate);
+    d.setDate(d.getDate() + site);
+    return d.toISOString().split('T')[0];
+  }
+  // デフォルト: 翌月末営業日（既存ヘルパー）
+  if(typeof nextMonthEndBizDay === 'function') {
+    return nextMonthEndBizDay(billingDate);
+  }
+  return '';
+}
+
+// マイルストーンの請求予定日が変更されたら、入金予定日を自動補完
+// （ユーザーが既に入金予定日を手動入力している場合は上書きしない）
+function onMilestoneDateChange(idx) {
+  const list = document.getElementById('f-opp-milestones-list');
+  if(!list) return;
+  const row = list.querySelector(`.milestone-row[data-idx="${idx}"]`);
+  if(!row) return;
+  const dateEl = row.querySelector('.milestone-date');
+  const payEl  = row.querySelector('.milestone-payment-date');
+  if(!dateEl || !payEl) return;
+  const date = dateEl.value || '';
+  // 入金予定日が空 or 「以前に自動計算した値と同一（=ユーザーが触っていない）」なら自動更新
+  // 簡易判定: 入金予定日が空なら必ず更新、入っていても再計算で上書き判定をユーザー任せにする
+  // → 実装方針: 「空のとき自動補完」「値があれば手を出さない」
+  if(!payEl.value) {
+    payEl.value = _calcMilestonePaymentDate(date);
+  }
+  updateMilestoneSummary();
+}
+
+// 入金予定日が手動変更されたとき（とくに自動計算は無し、整合性のみ更新）
+function onMilestonePaymentDateChange(idx) {
+  updateMilestoneSummary();
+}
+
+// 入金サイト（f-opp-billing-site）が変更されたとき、マイルストーンの入金予定日を再計算
+// 注意: 手動変更されたものを保護するため、現在の入金予定日が「サイト/翌月末営業日のロジックで
+// 計算した値と一致する」場合のみ更新する（=ユーザーが手動で書き換えていない場合のみ）
+function onMilestoneSiteChange() {
+  const type = document.getElementById('f-opp-billing-type')?.value || '';
+  if(type !== 'milestone') return;
+  const list = document.getElementById('f-opp-milestones-list');
+  if(!list) return;
+  const rows = list.querySelectorAll('.milestone-row');
+  rows.forEach(row => {
+    const dateEl = row.querySelector('.milestone-date');
+    const payEl  = row.querySelector('.milestone-payment-date');
+    if(!dateEl || !payEl) return;
+    const date = dateEl.value || '';
+    if(!date) return;
+    const newPay = _calcMilestonePaymentDate(date);
+    // 入金予定日が空、または「以前の自動計算結果」のままであれば更新
+    // 完全な追跡は難しいので、ここでは「空のときは埋める、値があれば触らない」を基本に、
+    // ただし更新ボタン的に明示的に「サイト変更で全部更新する」場合は別途。
+    if(!payEl.value) {
+      payEl.value = newPay;
+    }
+  });
   updateMilestoneSummary();
 }
 
@@ -2961,26 +3045,33 @@ function onMilestoneFirstDateChange() {
   const list = document.getElementById('f-opp-milestones-list');
   if(!list) return;
   const firstDateInput = list.querySelector('.milestone-date[data-idx="0"]');
+  const firstPayInput  = list.querySelector('.milestone-payment-date[data-idx="0"]');
   if(firstDateInput) {
     firstDateInput.value = firstDate;
+  }
+  // 入金予定日が空なら自動補完
+  if(firstPayInput && !firstPayInput.value && firstDate) {
+    firstPayInput.value = _calcMilestonePaymentDate(firstDate);
   }
   updateMilestoneSummary();
 }
 
 // 現在の入力からマイルストーン配列を取得
-// 戻り値: [{date:'YYYY-MM-DD', amount:number(万円)}, ...]
+// 戻り値: [{date:'YYYY-MM-DD', paymentDate:'YYYY-MM-DD', amount:number(万円)}, ...]
 function getMilestonesFromUI() {
   const list = document.getElementById('f-opp-milestones-list');
   if(!list) return [];
   const rows = list.querySelectorAll('.milestone-row');
   const out = [];
   rows.forEach(row => {
-    const dateEl   = row.querySelector('.milestone-date');
-    const amountEl = row.querySelector('.milestone-amount');
-    const date   = dateEl ? dateEl.value : '';
-    const amtRaw = amountEl ? parseFloat(amountEl.value || '0') : 0;
-    const amount = isNaN(amtRaw) ? 0 : Math.round(amtRaw * 10000) / 10000;
-    out.push({ date: date || '', amount });
+    const dateEl    = row.querySelector('.milestone-date');
+    const amountEl  = row.querySelector('.milestone-amount');
+    const payEl     = row.querySelector('.milestone-payment-date');
+    const date        = dateEl ? dateEl.value : '';
+    const paymentDate = payEl ? payEl.value : '';
+    const amtRaw      = amountEl ? parseFloat(amountEl.value || '0') : 0;
+    const amount      = isNaN(amtRaw) ? 0 : Math.round(amtRaw * 10000) / 10000;
+    out.push({ date: date || '', paymentDate: paymentDate || '', amount });
   });
   return out;
 }
@@ -2994,9 +3085,11 @@ function setMilestonesToUI(milestones) {
     initMilestonesUI();
     return;
   }
-  list.innerHTML = milestones.map((m, idx) =>
-    _milestoneRowHtml(idx, m.date || '', m.amount || 0)
-  ).join('');
+  list.innerHTML = milestones.map((m, idx) => {
+    // paymentDate がない場合は date から自動計算
+    const pd = m.paymentDate || (m.date ? _calcMilestonePaymentDate(m.date) : '');
+    return _milestoneRowHtml(idx, m.date || '', m.amount || 0, pd);
+  }).join('');
   // 1行目の日付は f-opp-billing-date と整合させる
   const firstDate = document.getElementById('f-opp-billing-date')?.value || '';
   if(firstDate && milestones[0]) {
@@ -3029,10 +3122,10 @@ function addMilestoneRow() {
     return;
   }
 
-  // 残額をデフォルト金額として埋める
+  // 残額をデフォルト金額として埋める。日付は空（ユーザーが入力 → 入金予定日も自動補完）
   const idx = cur.length;
   const tmp = document.createElement('div');
-  tmp.innerHTML = _milestoneRowHtml(idx, '', remain).trim();
+  tmp.innerHTML = _milestoneRowHtml(idx, '', remain, '').trim();
   list.appendChild(tmp.firstChild);
   updateMilestoneSummary();
 }
@@ -3228,20 +3321,38 @@ function autoSetBillingFromOpp(opp, force=false) {
   }
 
   // ── milestone（マイルストーン配列が指定されている場合）──
-  // opp.milestones = [{date:'YYYY-MM-DD', amount:number(万円)}, ...]
-  // 配列の各エントリを「請求月＝date の年月、請求金額＝amount」として月次に反映
+  // opp.milestones = [{date:'YYYY-MM-DD', paymentDate:'YYYY-MM-DD', amount:number(万円)}, ...]
+  // 各エントリを「請求月＝date の年月、請求金額＝amount」として月次に反映。
+  // 同じ月に複数マイルストーンがある場合は金額を合算。
+  // 入金予定日（paymentDate）はマイルストーンの値を優先し、未指定なら自動算出。
   if(opp.billingType === 'milestone' && Array.isArray(opp.milestones) && opp.milestones.length > 0) {
     const oppId = opp.id;
     let firstBillingDate = '';
 
-    // マイルストーン対象月の集合
-    const msYms = new Set();
+    // マイルストーンを月ごとに集約: { ym: {amount, billingDate, paymentDate} }
+    // billingDate は同月内で最も早い日を採用、paymentDate は最初に出現した非空の値
+    const msByYm = {};
     opp.milestones.forEach(ms => {
-      if(ms.date && /^\d{4}-\d{2}-\d{2}$/.test(ms.date)) msYms.add(ms.date.slice(0, 7));
+      const date = ms.date || '';
+      const amt  = Number(ms.amount) || 0;
+      if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+      const ym = date.slice(0, 7);
+      if(!msByYm[ym]) {
+        msByYm[ym] = { amount: 0, billingDate: date, paymentDate: ms.paymentDate || '' };
+      }
+      msByYm[ym].amount += amt;
+      // 同月内でより早い日付があれば採用
+      if(date < msByYm[ym].billingDate) msByYm[ym].billingDate = date;
+      // paymentDate は最初に見つかった非空のものを採用
+      if(!msByYm[ym].paymentDate && ms.paymentDate) {
+        msByYm[ym].paymentDate = ms.paymentDate;
+      }
     });
 
-    // force=true のとき: マイルストーン対象外の月で、過去にこの案件が請求として記録されていた月の billing をクリア
-    // （マイルストーン構成変更時に古い請求額が残らないようにする）
+    const msYms = new Set(Object.keys(msByYm));
+
+    // force=true のとき: マイルストーン対象外の月で、過去にこの案件が請求として記録されていた
+    // 月の billing をクリア（マイルストーン構成変更時に古い請求額が残らないようにする）
     if(force) {
       Object.keys(db.monthly || {}).forEach(ym => {
         if(isMonthLocked(ym)) return;
@@ -3257,12 +3368,11 @@ function autoSetBillingFromOpp(opp, force=false) {
       });
     }
 
-    // 各マイルストーンを反映
-    opp.milestones.forEach(ms => {
-      const date = ms.date || '';
-      const amt  = Number(ms.amount) || 0;
-      if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-      const ym = date.slice(0, 7);
+    // 各マイルストーン月を反映
+    Object.keys(msByYm).forEach(ym => {
+      const agg = msByYm[ym];
+      const date = agg.billingDate;
+      const amt  = Math.round(agg.amount * 10000) / 10000;
 
       if(isMonthLocked(ym)) return;
       if(!db.monthly[ym]) db.monthly[ym] = {};
@@ -3272,19 +3382,24 @@ function autoSetBillingFromOpp(opp, force=false) {
       const m = db.monthly[ym][oppId];
       if(m.locked) return;
 
-      // 請求額
+      // 請求額: マイルストーンで決まる（force=true、もしくは未入力なら反映）
       if(force || !(m.billing > 0)) m.billing = amt;
       // 請求予定日
       if(force || !m.billingDate)   m.billingDate = date;
-      // 入金予定日（入金サイトがあれば加算、なければ翌月末営業日）
+      // 入金予定日: マイルストーンに paymentDate があればそれを最優先で使う
+      // 無い場合は入金サイト or 翌月末営業日で計算
       if(force || !m.paymentDate) {
-        const site = parseInt(opp.billingSite || 0);
-        if(site > 0) {
-          const d = new Date(date);
-          d.setDate(d.getDate() + site);
-          m.paymentDate = d.toISOString().split('T')[0];
+        if(agg.paymentDate) {
+          m.paymentDate = agg.paymentDate;
         } else {
-          m.paymentDate = nextMonthEndBizDay(date);
+          const site = parseInt(opp.billingSite || 0);
+          if(site > 0) {
+            const d = new Date(date);
+            d.setDate(d.getDate() + site);
+            m.paymentDate = d.toISOString().split('T')[0];
+          } else {
+            m.paymentDate = nextMonthEndBizDay(date);
+          }
         }
       }
 
@@ -3298,13 +3413,19 @@ function autoSetBillingFromOpp(opp, force=false) {
         db.opportunities[oppIdx].billingDate = firstBillingDate;
       }
       if(!db.opportunities[oppIdx].paymentDue) {
-        const site = parseInt(opp.billingSite || 0);
-        if(site > 0) {
-          const d = new Date(firstBillingDate);
-          d.setDate(d.getDate() + site);
-          db.opportunities[oppIdx].paymentDue = d.toISOString().split('T')[0];
+        // 初回請求日に対応するマイルストーンの paymentDate を探して優先採用
+        const firstMs = (opp.milestones || []).find(ms => ms.date === firstBillingDate);
+        if(firstMs && firstMs.paymentDate) {
+          db.opportunities[oppIdx].paymentDue = firstMs.paymentDate;
         } else {
-          db.opportunities[oppIdx].paymentDue = nextMonthEndBizDay(firstBillingDate);
+          const site = parseInt(opp.billingSite || 0);
+          if(site > 0) {
+            const d = new Date(firstBillingDate);
+            d.setDate(d.getDate() + site);
+            db.opportunities[oppIdx].paymentDue = d.toISOString().split('T')[0];
+          } else {
+            db.opportunities[oppIdx].paymentDue = nextMonthEndBizDay(firstBillingDate);
+          }
         }
       }
     }
@@ -3448,6 +3569,12 @@ function saveOpportunity() {
         if(!_ms[i].date) errors.push(`・マイルストーン第${i+1}回の請求予定日`);
         if(!(_ms[i].amount > 0)) errors.push(`・マイルストーン第${i+1}回の請求金額`);
       }
+      // 入金予定日が未入力なら自動補完（請求予定日 + 入金サイト or 翌月末営業日）
+      _ms.forEach(m => {
+        if(m.date && !m.paymentDate && typeof _calcMilestonePaymentDate === 'function') {
+          m.paymentDate = _calcMilestonePaymentDate(m.date);
+        }
+      });
       // 合計が契約金額と一致するか（amount は万円、丸め済み前提）
       const _sum = Math.round(_ms.reduce((s, m) => s + (m.amount || 0), 0) * 10000) / 10000;
       if(Math.abs(_sum - amount) > 0.0001) {

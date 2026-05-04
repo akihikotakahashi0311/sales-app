@@ -293,7 +293,8 @@ function buildOppBillingForecast(opp, forecastEndYm) {
         const amt = Number(ms.amount) || 0;
         if(amt <= 0) return;
         const billingDate = ms.date;
-        const paymentDate = calcPaymentDate(billingDate, site);
+        // paymentDate: マイルストーンに指定があれば最優先、無ければサイトから算出
+        const paymentDate = ms.paymentDate || calcPaymentDate(billingDate, site);
         const paymentYm = paymentDate ? paymentDate.slice(0, 7) : '';
         records.push({
           billingYm: ym, billingDate, billingAmt: amt,
