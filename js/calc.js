@@ -1,34 +1,21 @@
-const MAX_AUTO_BACKUPS = 5;
-// BUG-16関連: 自動バックアップのlocalStorageキー（未定義により "undefined" キーになる不具合の修正）
-const BACKUP_KEY = 'sales_auto_backups';
+// ============================================================
+// 世代バックアップ (OneDrive 30日保管版)
+// ============================================================
+//   旧仕様: localStorage に5世代 (BACKUP_KEY = 'sales_auto_backups')
+//   新仕様: OneDrive (SharePoint) /backups/ に30日分を保管
+//
+// 関連関数 (onedrive.js で定義):
+//   - saveBackupToOneDrive(db)           保存
+//   - listBackupsFromOneDrive()           一覧取得
+//   - loadBackupFromOneDrive(filename)    読み込み (復元用)
+//   - pruneOldBackupsFromOneDrive()       30日超過分を削除
+//   - deleteBackupFromOneDrive(driveItemId) 個別削除
+// ============================================================
 let _importData = null;
 
-// NEW-3対策: 自動バックアップ一覧の読み込みを堅牢化
-//   localStorageの値が破損(JSON以外の文字列)していた場合、JSON.parseが例外を投げ、
-//   バックアップ一覧の描画/エクスポート/復元が連鎖的に失敗していた。
-//   try/catchで吸収し、破損時は警告ログを出して空配列にフォールバック。
-//   配列でない値が入っていた場合も安全側に倒す。
-function _loadBackups() {
-  let raw;
-  try {
-    raw = _storage.getItem(BACKUP_KEY);
-  } catch(e) {
-    console.warn('[Backup] _storage.getItem 失敗:', e && e.message);
-    return [];
-  }
-  if(!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if(!Array.isArray(parsed)) {
-      console.warn('[Backup] バックアップ一覧が配列ではありません。初期化します。');
-      return [];
-    }
-    return parsed;
-  } catch(e) {
-    console.warn('[Backup] バックアップ一覧のJSONが破損しています。空に戻します:', e && e.message);
-    return [];
-  }
-}
+// バックアップ一覧キャッシュ (UI用) — OneDrive一覧取得は非同期なのでキャッシュする
+//   getBackupList() で更新、各操作後に再取得する設計
+let _backupListCache = [];
 
 // ============================================================
 // 権限判定（Critical-1〜5対策の一部）
@@ -220,7 +207,7 @@ function _validateImportSchema(data) {
   return errors;
 }
 
-function confirmImport() {
+async function confirmImport() {
   if(!_importData) return;
 
   // BUG-17: 権限チェック - 管理者のみ復元を許可
@@ -241,7 +228,14 @@ function confirmImport() {
   if(!confirm('現在のデータをインポートデータで上書きします。よろしいですか？')) return;
 
   // 現在のデータを自動バックアップに保存してから上書き
-  createAutoBackup(false);
+  // OneDrive版は async なので await し、バックアップ完了後に上書きを進める。
+  // バックアップ失敗時もインポートは続行 (toast で警告は出る) — 完全停止すると
+  // 緊急時の復元ができなくなるため。
+  try {
+    await createAutoBackup(false);
+  } catch(e) {
+    console.warn('[Import] 事前バックアップに失敗、インポートは続行:', e && e.message);
+  }
 
   const mode = _importData.mode || 'full';
   if(mode === 'opportunities') {
@@ -319,147 +313,176 @@ function cancelImport() {
   document.getElementById('backup-import-filename').textContent = 'ファイル未選択';
 }
 
-// ─ 自動バックアップ
-// BUG-16: localStorage容量超過(QuotaExceededError)に対応
-//   1. 通常保存 → 失敗時は古い世代を削減して再試行
-//   2. それでもダメならPDFなど重いフィールドを除外して保存
-//   3. 全て失敗したらユーザーに警告（無音failを防ぐ）
-function createAutoBackup(showToast = true) {
-  const now = new Date();
-  const newEntry = {
-    timestamp: now.toISOString(),
-    label: now.toLocaleString('ja-JP'),
-    data: JSON.parse(JSON.stringify(db)),
-    size: JSON.stringify(db).length
-  };
-  let backups = _loadBackups();
-  backups.unshift(newEntry);
-  // 最大5世代
-  if(backups.length > MAX_AUTO_BACKUPS) backups.splice(MAX_AUTO_BACKUPS);
-
-  // ステップ1: 通常保存
-  if(_trySetBackups(backups)) {
-    if(showToast) toast('バックアップを保存しました', 'success');
-    renderBackupHistory();
-    return true;
+// ─ 自動バックアップ (OneDrive版)
+// 既存呼び出し元との互換性のため、関数シグネチャは createAutoBackup(showToast) のまま。
+// ただし内部は async なので、戻り値は Promise<boolean>。
+// 既存の呼び出し元 (例: confirmImport, beforeunload) は同期的に呼んでいるが、
+// fire-and-forget で問題ない (失敗時は toast で通知)。
+async function createAutoBackup(showToast = true) {
+  if(!_odSyncEnabled || !_graphToken) {
+    if(showToast) toast('⚠️ OneDriveに接続されていないためバックアップできません', 'error');
+    return false;
   }
-
-  // ステップ2: 古い世代を1つずつ削減して再試行
-  while(backups.length > 1) {
-    backups.pop();
-    if(_trySetBackups(backups)) {
-      console.warn('[Backup] 容量制限により古い世代を削減して保存');
-      if(showToast) toast('バックアップを保存しました（古い世代を整理）', 'success');
-      renderBackupHistory();
-      return true;
-    }
-  }
-
-  // ステップ3: 最新分のみ + PDFを除外して再試行
-  const slim = JSON.parse(JSON.stringify(newEntry));
-  // 容量を圧迫しがちなフィールドを退避（pdfFiles=base64本体、pdfRefs=参照は軽いので残す）
-  if(slim.data && slim.data.pdfFiles) slim.data.pdfFiles = {};
-  slim.size = JSON.stringify(slim.data).length;
-  if(_trySetBackups([slim])) {
-    console.warn('[Backup] 容量制限によりPDF本体を除外して保存');
-    if(showToast) toast('⚠️ 容量制限のためPDF本体を除外してバックアップしました', 'info');
-    renderBackupHistory();
-    return true;
-  }
-
-  // ステップ4: それでも失敗 → ユーザーに警告
-  console.error('[Backup] localStorage容量超過によりバックアップ保存に失敗');
-  toast('⚠️ ストレージ容量が不足し自動バックアップに失敗しました。手動でJSONエクスポートしてください', 'error');
-  return false;
-}
-
-// localStorageへの安全な書き込み（QuotaExceededErrorをキャッチ）
-function _trySetBackups(backups) {
   try {
-    _storage.setItem(BACKUP_KEY, JSON.stringify(backups));
+    const r = await saveBackupToOneDrive(db);
+    // 30日超過分を削除 (await しないでも良いが、結果をログに残す)
+    pruneOldBackupsFromOneDrive().then(p => {
+      if(p && p.deleted > 0) console.log(`[Backup] 30日超過の${p.deleted}件を自動削除`);
+    }).catch(e => console.warn('[Backup] prune失敗:', e && e.message));
+
+    if(showToast) toast(`バックアップを保存しました (${r.filename})`, 'success');
+    // UI更新 (一覧再取得)
+    renderBackupHistory().catch(e => console.warn('[Backup] 一覧再描画失敗:', e && e.message));
     return true;
   } catch(e) {
-    // QuotaExceededError は環境により名前が異なる
-    const isQuota = e && (
-      e.name === 'QuotaExceededError' ||
-      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-      e.code === 22 || e.code === 1014
-    );
-    if(!isQuota) {
-      console.error('[Backup] 想定外のストレージエラー:', e);
-    }
+    console.error('[Backup] 保存失敗:', e && e.message);
+    if(showToast) toast('⚠️ バックアップ保存に失敗しました: ' + (e.message || ''), 'error');
     return false;
   }
 }
 
-// ─ 自動バックアップから復元
+// ─ 自動バックアップから復元 (OneDrive版)
 // BUG-17対策: 管理者のみ復元可能、ユーザーマスタは保護
-function restoreAutoBackup(index) {
-  // 権限チェック
+//
+// 注意: 既存実装は restoreAutoBackup(index) というシグネチャだったが、
+//       OneDrive版では filename (例: 'backup-20260504-100000.enc') を受け取る。
+//       UI側 (renderBackupHistory) はキャッシュからファイル名を渡す。
+async function restoreAutoBackup(filename) {
   if(typeof isAdminUser === 'function' && !isAdminUser()) {
     toast('⚠️ バックアップ復元は管理者権限が必要です', 'error');
     return;
   }
-  const backups = _loadBackups();
-  const bk = backups[index];
-  if(!bk) return;
-  if(!confirm(`${bk.label} のバックアップに戻しますか？\n現在のデータは失われます。`)) return;
+  if(!_odSyncEnabled || !_graphToken) {
+    toast('⚠️ OneDriveに接続されていません', 'error');
+    return;
+  }
+  // キャッシュからラベルを引く
+  const meta = _backupListCache.find(b => b.filename === filename);
+  const label = meta ? meta.label : filename;
+  if(!confirm(`${label} のバックアップに戻しますか？\n現在のデータは失われます。`)) return;
 
-  // スキーマ検証
-  const schemaErrors = _validateImportSchema(bk.data);
+  let bkData;
+  try {
+    bkData = await loadBackupFromOneDrive(filename);
+  } catch(e) {
+    console.error('[Restore] バックアップ取得失敗:', e && e.message);
+    toast('⚠️ バックアップの取得に失敗しました: ' + (e.message || ''), 'error');
+    return;
+  }
+
+  // スキーマ検証 (BUG-17, F-7 修正済み)
+  const schemaErrors = (typeof _validateImportSchema === 'function')
+    ? _validateImportSchema(bkData) : [];
   if(schemaErrors.length > 0) {
     console.warn('[Restore] スキーマ検証エラー:', schemaErrors);
     toast('⚠️ バックアップデータが不正です: ' + schemaErrors[0], 'error');
     return;
   }
 
-  const skip = ['exportedAt', 'mode', 'storeKey'];
-  // 自動バックアップは「自分が作成したスナップショット」なのでusers/orgs上書きは許可するが、
-  // それでも検証済みデータのみ反映
-  Object.keys(bk.data).forEach(k => {
-    if(!skip.includes(k)) db[k] = bk.data[k];
+  const skip = ['exportedAt', 'mode', 'storeKey', '_savedAt'];
+  // 自動バックアップは「自分が作成したスナップショット」なのでusers/orgs上書きは許可
+  Object.keys(bkData).forEach(k => {
+    if(!skip.includes(k)) db[k] = bkData[k];
   });
   save();
   toast('バックアップから復元しました', 'success');
   setTimeout(() => location.reload(), 800);
 }
 
-// ─ 自動バックアップから個別エクスポート
-function exportAutoBackup(index) {
-  const backups = _loadBackups();
-  const bk = backups[index];
-  if(!bk) return;
-  const data = { ...bk.data, exportedAt: bk.timestamp, mode: 'full' };
-  const stamp = bk.timestamp.replace(/[:.]/g, '-').slice(0, 19);
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `sales_backup_${stamp}.json`;
-  a.click(); URL.revokeObjectURL(url);
-}
-
-// ─ 自動バックアップ履歴を描画
-function renderBackupHistory() {
-  const el = document.getElementById('backup-history-list');
-  if(!el) return;
-  const backups = _loadBackups();
-  if(!backups.length) {
-    el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">バックアップ履歴はありません</p>';
+// ─ 自動バックアップから個別エクスポート (OneDrive版)
+//   OneDriveから読み込み → ローカルに JSON ダウンロード
+async function exportAutoBackup(filename) {
+  if(!_odSyncEnabled || !_graphToken) {
+    toast('⚠️ OneDriveに接続されていません', 'error');
     return;
   }
-  el.innerHTML = backups.map((bk, i) => {
-    const size = (bk.size / 1024).toFixed(1);
-    const opps = bk.data?.opportunities?.length || 0;
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;
-        border-bottom:1px solid var(--border-light);">
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:500;">${_h(bk.label)}</div>
-        <div style="font-size:11px;color:var(--text-muted);">案件 ${opps}件 ／ ${size} KB</div>
-      </div>
-      <button class="btn btn-sm" onclick="exportAutoBackup(${i})" title="ダウンロード">📤</button>
-      <button class="btn btn-sm btn-primary" onclick="restoreAutoBackup(${i})">復元</button>
-    </div>`;
-  }).join('');
+  try {
+    const bkData = await loadBackupFromOneDrive(filename);
+    const ts = filename.replace(/\.enc$/, '').replace(/^backup-/, '');
+    const data = { ...bkData, exportedAt: new Date().toISOString(), mode: 'full' };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `sales_backup_${ts}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    toast(`${filename} をダウンロードしました`, 'success');
+  } catch(e) {
+    console.error('[Export] 失敗:', e && e.message);
+    toast('⚠️ エクスポートに失敗しました: ' + (e.message || ''), 'error');
+  }
+}
+
+// ─ 自動バックアップから個別削除 (新機能)
+async function deleteAutoBackup(filename) {
+  if(typeof isAdminUser === 'function' && !isAdminUser()) {
+    toast('⚠️ バックアップ削除は管理者権限が必要です', 'error');
+    return;
+  }
+  const meta = _backupListCache.find(b => b.filename === filename);
+  if(!meta) return;
+  if(!confirm(`${meta.label} のバックアップを削除しますか？\nこの操作は取り消せません。`)) return;
+  try {
+    await deleteBackupFromOneDrive(meta.driveItemId);
+    toast('バックアップを削除しました', 'success');
+    renderBackupHistory();
+  } catch(e) {
+    console.error('[Delete] 失敗:', e && e.message);
+    toast('⚠️ 削除に失敗しました: ' + (e.message || ''), 'error');
+  }
+}
+
+// ─ 自動バックアップ履歴を描画 (OneDrive版、async)
+//   呼び出し元は await しなくてもよい (fire-and-forget で OK)。
+//   一覧取得中は「読み込み中...」を表示し、取得後にリプレースする。
+async function renderBackupHistory() {
+  const el = document.getElementById('backup-history-list');
+  if(!el) return;
+
+  // 未接続時
+  if(!_odSyncEnabled || !_graphToken) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">' +
+      '⚠️ OneDriveに接続するとバックアップ履歴が表示されます</p>';
+    return;
+  }
+
+  // 読み込み中
+  el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">読み込み中...</p>';
+
+  let backups = [];
+  try {
+    backups = await listBackupsFromOneDrive();
+    _backupListCache = backups; // キャッシュ更新
+  } catch(e) {
+    console.warn('[Backup] 一覧取得失敗:', e && e.message);
+    el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">' +
+      '⚠️ バックアップ一覧の取得に失敗しました: ' + _h(e.message || '') + '</p>';
+    return;
+  }
+
+  if(!backups.length) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">' +
+      'バックアップ履歴はありません (最大30日間保持されます)</p>';
+    return;
+  }
+
+  el.innerHTML =
+    '<p style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">' +
+    `OneDrive上に保存 (${backups.length}世代、30日間保管)</p>` +
+    backups.map(bk => {
+      const sizeKb = (bk.size / 1024).toFixed(1);
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;
+          border-bottom:1px solid var(--border-light);">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:500;">${_h(bk.label)}</div>
+          <div style="font-size:11px;color:var(--text-muted);font-family:monospace;">
+            ${_h(bk.filename)} ／ ${sizeKb} KB
+          </div>
+        </div>
+        <button class="btn btn-sm" onclick="exportAutoBackup('${_hj(bk.filename)}')" title="ダウンロード">📤</button>
+        <button class="btn btn-sm btn-primary" onclick="restoreAutoBackup('${_hj(bk.filename)}')">復元</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteAutoBackup('${_hj(bk.filename)}')" title="削除">🗑</button>
+      </div>`;
+    }).join('');
 }
 
 
@@ -773,10 +796,13 @@ function matchesScope(opp) {
 }
 
 
-window.addEventListener('beforeunload', () => {
-  // ページ離脱時に自動バックアップ
-  try { createAutoBackup(false); } catch(e) {}
-});
+// 注意: 旧実装ではここで createAutoBackup() を呼んでいたが、
+//       OneDrive版に移行したため beforeunload では fetch の完了を待てず
+//       実質的に意味がない。バックアップは下記のいずれかで取得される:
+//         - 5分タイマー (DOMContentLoaded で setInterval 設定)
+//         - 明示的なバックアップボタン
+//         - 復元前の自動バックアップ (confirmImport で呼ばれる)
+//       なお、通常の編集データは save() → OneDrive メインファイルに保存される。
 
 window.addEventListener('DOMContentLoaded', async () => {
   await window._appReady;
@@ -797,9 +823,40 @@ window.addEventListener('DOMContentLoaded', async () => {
   autoGenerateAlerts();
   renderDashboard();
   updateAlertBadge();
-  // グローバル検索窓: 初期ページ（ダッシュボード）では検索対象なし → 非表示
-  const _gbar = document.getElementById('global-search-bar');
-  if(_gbar) _gbar.style.display = 'none';
+  // ============================================================
+  // 定期バックアップタイマー (1時間ごとに OneDrive へ世代バックアップ)
+  // ============================================================
+  // 設計:
+  //   - 1時間ごとに createAutoBackup(false) を呼ぶ (showToast=false)
+  //   - 30日 × 24時間 = 最大720世代になる可能性があるが、
+  //     pruneOldBackupsFromOneDrive() で30日超過分は自動削除されるため
+  //     実際には最大 720 世代以下に収束する。
+  //   - OneDrive未接続時は no-op (createAutoBackup 内で判定)
+  //   - タブ非アクティブ時もタイマーは動く (setInterval仕様)
+  //   - ユーザーが必要に応じて頻度を変更できるよう、間隔は定数化。
+  // ============================================================
+  const BACKUP_INTERVAL_MS = 60 * 60 * 1000; // 1時間
+  setInterval(() => {
+    if(_odSyncEnabled && _graphToken) {
+      createAutoBackup(false).catch(e =>
+        console.warn('[Backup] 定期バックアップ失敗:', e && e.message)
+      );
+    }
+  }, BACKUP_INTERVAL_MS);
+
+  // 初回起動時にも1回バックアップを取る (前回起動から時間が経っている可能性)
+  // ただし起動直後の連続リロードでバックアップが氾濫するのを防ぐため、
+  // 前回バックアップから1時間以上経過している場合のみ実行
+  setTimeout(async () => {
+    if(!_odSyncEnabled || !_graphToken) return;
+    try {
+      const list = await listBackupsFromOneDrive();
+      const lastTs = list[0]?.timestamp ? new Date(list[0].timestamp).getTime() : 0;
+      if(Date.now() - lastTs > BACKUP_INTERVAL_MS) {
+        createAutoBackup(false).catch(() => {});
+      }
+    } catch(e) { /* 初回失敗は無視 */ }
+  }, 30 * 1000); // 起動30秒後
 
 });
 

@@ -988,4 +988,208 @@ async function initOneDriveSync() {
   }
 }
 // ============================================================
+// OneDrive 世代バックアップ機能 (NEW: 30日間自動保管)
+// ============================================================
+//
+// 設計:
+//   - 保存先: SharePoint /backups/backup-YYYYMMDD-HHmmss.enc
+//   - 暗号化: 既存の encryptJson() (AES-GCM 256bit + PBKDF2)
+//   - 保管期間: 30日 (BACKUP_RETENTION_DAYS)
+//   - 命名規則: backup-YYYYMMDD-HHmmss.enc (ファイル名でソート可能)
+//   - localStorage には保存しない (ローカル保存は廃止)
+//
+// 前提:
+//   - OneDrive (SharePoint) 接続が前提。未接続時はバックアップ機能無効。
+//   - calc.js 側でこれらの関数を呼び出す。
+// ============================================================
+
+const BACKUP_FOLDER_PATH    = 'backups';
+const BACKUP_RETENTION_DAYS = 30;
+const BACKUP_FILE_PATTERN   = /^backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.enc$/;
+
+// ── バックアップフォルダ用エンドポイント (フォルダ自体ではなくファイル単位アクセス) ──
+function _backupFileEndpoint(filename) {
+  const SHAREPOINT_DRIVE_ID = 'b!Yf0QIkoJpEe7mHomV2mvmlIARdLARQxGipXNt59TpYUH60DFtQoVSaNFze9_h2n7';
+  return `https://graph.microsoft.com/v1.0/drives/${SHAREPOINT_DRIVE_ID}/root:/${BACKUP_FOLDER_PATH}/${filename}:`;
+}
+function _backupFolderChildrenEndpoint() {
+  const SHAREPOINT_DRIVE_ID = 'b!Yf0QIkoJpEe7mHomV2mvmlIARdLARQxGipXNt59TpYUH60DFtQoVSaNFze9_h2n7';
+  return `https://graph.microsoft.com/v1.0/drives/${SHAREPOINT_DRIVE_ID}/root:/${BACKUP_FOLDER_PATH}:/children`;
+}
+function _backupItemDeleteEndpoint(driveItemId) {
+  const SHAREPOINT_DRIVE_ID = 'b!Yf0QIkoJpEe7mHomV2mvmlIARdLARQxGipXNt59TpYUH60DFtQoVSaNFze9_h2n7';
+  return `https://graph.microsoft.com/v1.0/drives/${SHAREPOINT_DRIVE_ID}/items/${driveItemId}`;
+}
+
+// ── バックアップファイル名の生成・解析 ──
+function _genBackupFilename(date) {
+  const d = date || new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `backup-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.enc`;
+}
+function _parseBackupFilename(filename) {
+  const m = String(filename).match(BACKUP_FILE_PATTERN);
+  if(!m) return null;
+  return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
+}
+
+// ============================================================
+// OneDriveに世代バックアップを保存
+// ============================================================
+async function saveBackupToOneDrive(srcDb) {
+  if(!_odSyncEnabled || !_graphToken) {
+    throw new Error('OneDrive未接続のためバックアップできません');
+  }
+  const filename = _genBackupFilename();
+  const url = `${_backupFileEndpoint(filename)}/content`;
+
+  // 暗号化 (crypto.js が読み込まれていれば使用)
+  let body, contentType;
+  if(typeof encryptJson === 'function') {
+    body = await encryptJson(srcDb);
+    contentType = 'application/octet-stream';
+  } else {
+    // フォールバック: 平文JSON (本番では crypto.js が必須)
+    body = JSON.stringify(srcDb);
+    contentType = 'application/json';
+  }
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${_graphToken}`,
+      'Content-Type': contentType,
+    },
+    body,
+  });
+  if(!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`OneDrive保存失敗 HTTP ${res.status}: ${txt.slice(0,200)}`);
+  }
+  return { filename, size: body.byteLength || body.length };
+}
+
+// ============================================================
+// OneDriveから世代バックアップ一覧を取得
+// ============================================================
+//   フォルダが存在しない場合は空配列を返す (初回起動時)
+//   返却形式: [{ filename, timestamp, label, size, driveItemId }]
+// ============================================================
+async function listBackupsFromOneDrive() {
+  if(!_odSyncEnabled || !_graphToken) return [];
+
+  const url = `${_backupFolderChildrenEndpoint()}?$top=100&$orderby=name desc`;
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${_graphToken}` }
+  });
+  if(res.status === 404) return [];  // フォルダ未作成 = まだバックアップ無し
+  if(!res.ok) {
+    console.warn('[Backup] 一覧取得失敗 HTTP', res.status);
+    return [];
+  }
+  const data = await res.json();
+  return (data.value || [])
+    .filter(item => item.name && BACKUP_FILE_PATTERN.test(item.name))
+    .map(item => {
+      const ts = _parseBackupFilename(item.name);
+      return {
+        filename:    item.name,
+        timestamp:   ts ? ts.toISOString() : null,
+        label:       ts ? ts.toLocaleString('ja-JP') : item.name,
+        size:        item.size || 0,
+        driveItemId: item.id,
+      };
+    })
+    .sort((a, b) => b.filename.localeCompare(a.filename));  // 新しい順
+}
+
+// ============================================================
+// OneDriveから特定の世代を読み込む (復元用)
+// ============================================================
+async function loadBackupFromOneDrive(filename) {
+  if(!_odSyncEnabled || !_graphToken) {
+    throw new Error('OneDrive未接続');
+  }
+  if(!BACKUP_FILE_PATTERN.test(filename)) {
+    throw new Error('不正なバックアップファイル名');
+  }
+
+  const url = `${_backupFileEndpoint(filename)}/content`;
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${_graphToken}` }
+  });
+  if(!res.ok) throw new Error(`読み込み失敗 HTTP ${res.status}`);
+
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+
+  // マジックヘッダで暗号化判別
+  if(bytes.length >= 4) {
+    const magic = new TextDecoder().decode(bytes.slice(0, 4));
+    if(magic === 'ENC1' && typeof decryptJson === 'function') {
+      return await decryptJson(bytes);
+    }
+  }
+  // 暗号化なし (平文JSON) フォールバック
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+// ============================================================
+// 30日超過分を自動削除
+// ============================================================
+//   _parseBackupFilename(name) で日時を取り出し、現在から
+//   BACKUP_RETENTION_DAYS (30日) 以上前のものを Graph API で削除する。
+// ============================================================
+async function pruneOldBackupsFromOneDrive() {
+  if(!_odSyncEnabled || !_graphToken) return { deleted: 0, kept: 0 };
+
+  const list = await listBackupsFromOneDrive();
+  if(list.length === 0) return { deleted: 0, kept: 0 };
+
+  const cutoff = new Date(Date.now() - BACKUP_RETENTION_DAYS * 86400 * 1000);
+  const toDelete = list.filter(b => {
+    if(!b.timestamp) return false; // 日付パース失敗は念のため残す
+    return new Date(b.timestamp) < cutoff;
+  });
+
+  let deleted = 0, failed = 0;
+  for(const item of toDelete) {
+    try {
+      const res = await fetch(_backupItemDeleteEndpoint(item.driveItemId), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${_graphToken}` }
+      });
+      if(res.ok || res.status === 204) {
+        deleted++;
+      } else {
+        failed++;
+        console.warn('[Backup] 古い世代の削除失敗:', item.filename, 'HTTP', res.status);
+      }
+    } catch(e) {
+      failed++;
+      console.warn('[Backup] 古い世代の削除例外:', item.filename, e.message);
+    }
+  }
+  return { deleted, failed, kept: list.length - deleted };
+}
+
+// ============================================================
+// OneDriveから特定のバックアップを削除 (ユーザー操作用)
+// ============================================================
+async function deleteBackupFromOneDrive(driveItemId) {
+  if(!_odSyncEnabled || !_graphToken) {
+    throw new Error('OneDrive未接続');
+  }
+  const res = await fetch(_backupItemDeleteEndpoint(driveItemId), {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${_graphToken}` }
+  });
+  if(!(res.ok || res.status === 204)) {
+    throw new Error(`削除失敗 HTTP ${res.status}`);
+  }
+  return true;
+}
+
+// ============================================================
 // STATE & STORAGE
+
