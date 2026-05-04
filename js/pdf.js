@@ -646,8 +646,9 @@ function _popupMilestoneRowHtml(idx, date, amount, paymentDate) {
         <span style="font-size:10px;color:var(--text-muted);">入金予定日</span>
         <input type="date" class="form-control popup-milestone-payment-date" data-idx="${idx}"
                value="${_ha(paymentDate || '')}"
+               data-auto="1"
                oninput="onPopupMilestonePaymentDateChange(${idx})"
-               title="請求予定日変更時に自動補完されます。手動で上書き可能。">
+               title="請求予定日変更時に自動補完されます。手動で上書きすると保護されます。">
       </div>
       <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:120px;">
         <span style="font-size:10px;color:var(--text-muted);">金額</span>
@@ -675,7 +676,7 @@ function initPopupMilestonesUI() {
   updatePopupMilestoneSummary();
 }
 
-// 請求予定日変更時: 入金予定日が空なら自動補完
+// 請求予定日変更時: 自動計算済み（data-auto="1"）または空の入金予定日を再計算
 function onPopupMilestoneDateChange(idx) {
   const list = document.getElementById('popup-milestones-list');
   if(!list) return;
@@ -685,18 +686,29 @@ function onPopupMilestoneDateChange(idx) {
   const payEl  = row.querySelector('.popup-milestone-payment-date');
   if(!dateEl || !payEl) return;
   const date = dateEl.value || '';
-  if(!payEl.value) {
+  // 入金予定日: 「空」または「自動計算で入れた値（data-auto="1"）」のときは再計算で上書き。
+  // 手動で上書きされた値（data-auto="0"）は保護する。
+  const isAuto = (payEl.getAttribute('data-auto') === '1') || !payEl.value;
+  if(isAuto) {
     payEl.value = _calcPopupMilestonePaymentDate(date);
+    payEl.setAttribute('data-auto', '1');
   }
   updatePopupMilestoneSummary();
 }
 
-// 入金予定日が手動変更されたとき
+// 入金予定日が手動変更されたとき: 自動計算保護フラグ off
 function onPopupMilestonePaymentDateChange(idx) {
+  const list = document.getElementById('popup-milestones-list');
+  const row = list?.querySelector(`.popup-milestone-row[data-idx="${idx}"]`);
+  const payEl = row?.querySelector('.popup-milestone-payment-date');
+  if(payEl) {
+    // 値があれば手動入力扱い、空に戻されたら自動計算対象に戻す
+    payEl.setAttribute('data-auto', payEl.value ? '0' : '1');
+  }
   updatePopupMilestoneSummary();
 }
 
-// 入金サイト変更時: 空のままの入金予定日のみ自動更新
+// 入金サイト変更時: data-auto="1"（自動計算済み or 空）の入金予定日のみ再計算
 function onPopupMilestoneSiteChange() {
   const type = document.getElementById('popup-billing-type')?.value || '';
   if(type !== 'milestone') return;
@@ -709,8 +721,10 @@ function onPopupMilestoneSiteChange() {
     if(!dateEl || !payEl) return;
     const date = dateEl.value || '';
     if(!date) return;
-    if(!payEl.value) {
+    const isAuto = (payEl.getAttribute('data-auto') === '1') || !payEl.value;
+    if(isAuto) {
       payEl.value = _calcPopupMilestonePaymentDate(date);
+      payEl.setAttribute('data-auto', '1');
     }
   });
   updatePopupMilestoneSummary();
@@ -728,8 +742,13 @@ function onPopupMilestoneFirstDateChange() {
   if(firstDateInput) {
     firstDateInput.value = firstDate;
   }
-  if(firstPayInput && !firstPayInput.value && firstDate) {
-    firstPayInput.value = _calcPopupMilestonePaymentDate(firstDate);
+  // 入金予定日: data-auto="1"（自動計算済み or 空）なら再計算で上書き
+  if(firstPayInput && firstDate) {
+    const isAuto = (firstPayInput.getAttribute('data-auto') === '1') || !firstPayInput.value;
+    if(isAuto) {
+      firstPayInput.value = _calcPopupMilestonePaymentDate(firstDate);
+      firstPayInput.setAttribute('data-auto', '1');
+    }
   }
   updatePopupMilestoneSummary();
 }

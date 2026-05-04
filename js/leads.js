@@ -2937,8 +2937,9 @@ function _milestoneRowHtml(idx, date, amount, paymentDate) {
         <span style="font-size:10px;color:var(--text-muted);">入金予定日</span>
         <input type="date" class="form-control milestone-payment-date" data-idx="${idx}"
                value="${_ha(paymentDate || '')}"
+               data-auto="1"
                oninput="onMilestonePaymentDateChange(${idx})"
-               title="請求予定日変更時に自動補完されます。手動で上書き可能。">
+               title="請求予定日変更時に自動補完されます。手動で上書きすると保護されます。">
       </div>
       <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:120px;">
         <span style="font-size:10px;color:var(--text-muted);">金額</span>
@@ -2997,23 +2998,31 @@ function onMilestoneDateChange(idx) {
   const payEl  = row.querySelector('.milestone-payment-date');
   if(!dateEl || !payEl) return;
   const date = dateEl.value || '';
-  // 入金予定日が空 or 「以前に自動計算した値と同一（=ユーザーが触っていない）」なら自動更新
-  // 簡易判定: 入金予定日が空なら必ず更新、入っていても再計算で上書き判定をユーザー任せにする
-  // → 実装方針: 「空のとき自動補完」「値があれば手を出さない」
-  if(!payEl.value) {
+  // 入金予定日: 「空」または「自動計算で入れた値」のときは再計算で上書き。
+  // 手動で上書きされた値（data-auto="0"）は保護する。
+  const isAuto = (payEl.getAttribute('data-auto') === '1') || !payEl.value;
+  if(isAuto) {
     payEl.value = _calcMilestonePaymentDate(date);
+    payEl.setAttribute('data-auto', '1');
   }
   updateMilestoneSummary();
 }
 
 // 入金予定日が手動変更されたとき（とくに自動計算は無し、整合性のみ更新）
 function onMilestonePaymentDateChange(idx) {
+  const list = document.getElementById('f-opp-milestones-list');
+  const row = list?.querySelector(`.milestone-row[data-idx="${idx}"]`);
+  const payEl = row?.querySelector('.milestone-payment-date');
+  if(payEl) {
+    // 手動入力 → 自動計算保護フラグ off（以後、請求予定日変更時の再計算で上書きされない）
+    // ただし空に戻された場合は再び自動計算対象に戻す
+    payEl.setAttribute('data-auto', payEl.value ? '0' : '1');
+  }
   updateMilestoneSummary();
 }
 
 // 入金サイト（f-opp-billing-site）が変更されたとき、マイルストーンの入金予定日を再計算
-// 注意: 手動変更されたものを保護するため、現在の入金予定日が「サイト/翌月末営業日のロジックで
-// 計算した値と一致する」場合のみ更新する（=ユーザーが手動で書き換えていない場合のみ）
+// 注意: 手動変更されたものを保護するため、data-auto="1" の行（自動計算済み or 空）のみ更新する
 function onMilestoneSiteChange() {
   const type = document.getElementById('f-opp-billing-type')?.value || '';
   if(type !== 'milestone') return;
@@ -3026,12 +3035,11 @@ function onMilestoneSiteChange() {
     if(!dateEl || !payEl) return;
     const date = dateEl.value || '';
     if(!date) return;
-    const newPay = _calcMilestonePaymentDate(date);
-    // 入金予定日が空、または「以前の自動計算結果」のままであれば更新
-    // 完全な追跡は難しいので、ここでは「空のときは埋める、値があれば触らない」を基本に、
-    // ただし更新ボタン的に明示的に「サイト変更で全部更新する」場合は別途。
-    if(!payEl.value) {
-      payEl.value = newPay;
+    // data-auto="1"（自動計算済み）または空の入金予定日のみ再計算で上書き
+    const isAuto = (payEl.getAttribute('data-auto') === '1') || !payEl.value;
+    if(isAuto) {
+      payEl.value = _calcMilestonePaymentDate(date);
+      payEl.setAttribute('data-auto', '1');
     }
   });
   updateMilestoneSummary();
@@ -3049,9 +3057,13 @@ function onMilestoneFirstDateChange() {
   if(firstDateInput) {
     firstDateInput.value = firstDate;
   }
-  // 入金予定日が空なら自動補完
-  if(firstPayInput && !firstPayInput.value && firstDate) {
-    firstPayInput.value = _calcMilestonePaymentDate(firstDate);
+  // 入金予定日: 空 or 自動計算済みなら再計算で上書き
+  if(firstPayInput && firstDate) {
+    const isAuto = (firstPayInput.getAttribute('data-auto') === '1') || !firstPayInput.value;
+    if(isAuto) {
+      firstPayInput.value = _calcMilestonePaymentDate(firstDate);
+      firstPayInput.setAttribute('data-auto', '1');
+    }
   }
   updateMilestoneSummary();
 }
